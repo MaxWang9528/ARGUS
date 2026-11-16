@@ -290,7 +290,7 @@ class TwitchChatSource:
                 return
             await ws.send(f"PART #{name}")
             self._joined.discard(name)
-            log.info("left chat", extra={"streamer": name})
+            log.info("left #%s", name, extra={"streamer": name})
         for name in sorted(wanted - self._joined):
             if name not in self._wanted():
                 continue  # removed while we waited
@@ -299,6 +299,6 @@ class TwitchChatSource:
                 return
             await ws.send(f"JOIN #{name}")
             self._joined.add(name)
-            log.info("joined chat", extra={"streamer": name})
+            log.info("joined #%s", name, extra={"streamer": name})
         if self._wanted() != self._joined:
             self._wake.set()  # the config changed while we were joining

@@ -9,8 +9,9 @@ a finished peak gives one ``PeakEvent``. Tests and ``replay`` drive it directly.
 the trackers on the wall clock and publishes ``Topic.RATE`` and ``Topic.PEAK``.
 
 The signal:
-- messages are counted in ``bin_s`` bins and the rate is the trailing mean over
-  ``smooth_s`` (messages per second);
+- messages are counted in ``bin_s`` bins (one account counts for at most
+  ``MAX_PER_USER_PER_S`` per second, so a lone spammer can't make a peak) and the
+  rate is the trailing mean over ``smooth_s`` (messages per second);
 - the baseline is the rolling median of that rate over ``baseline_window_s``,
   leaving out bins inside a peak; the spread is the MAD scaled to a standard
   deviation, never below ``MIN_SPREAD`` (integer counts make the MAD exactly 0
