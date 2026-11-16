@@ -120,15 +120,18 @@ class FfmpegRenderer:
     """Implements ``core.interfaces.Renderer``.
 
     ``ffmpeg_cmd`` / ``ffprobe_cmd`` are the commands to run (a list, so tests can
-    point them at a stub script). ``threads`` caps x264's threads (default: ffmpeg's)."""
+    point them at a stub script). ``threads`` caps x264's threads (default: ffmpeg's).
+    ``title_fallback``: if the title banner makes ffmpeg fail (no drawtext filter, bad
+    font), render again without it instead of failing. Tests turn it off."""
 
     def __init__(self, *, store: ConfigStore, bus: EventBus,
                  ffmpeg_cmd: Sequence[str] = ("ffmpeg",), ffprobe_cmd: Sequence[str] = ("ffprobe",),
-                 threads: int | None = None) -> None:
+                 threads: int | None = None, title_fallback: bool = True) -> None:
         self.store, self.bus = store, bus
         self.ffmpeg_cmd = list(ffmpeg_cmd)
         self.ffprobe_cmd = list(ffprobe_cmd)
         self.threads = threads
+        self.title_fallback = title_fallback
         self._limiter = _Limiter(lambda: self.store.get().general.max_concurrent_renders)
 
     @property
@@ -167,7 +170,8 @@ class FfmpegRenderer:
             try:
                 await self._encode(raw, out, layout, size, info, title, font)
             except RenderError as exc:
-                if title is None or not any(k in exc.output.lower() for k in ("drawtext", "font")):
+                title_broke = any(k in exc.output.lower() for k in ("drawtext", "font"))
+                if title is None or not self.title_fallback or not title_broke:
                     raise
                 log.warning("title banner failed (%s), rendering without it",
                             exc.output.strip().splitlines()[-1] if exc.output.strip() else exc,

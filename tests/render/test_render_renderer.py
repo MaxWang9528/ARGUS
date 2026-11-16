@@ -20,6 +20,7 @@ from livewatcher.core.events import EventBus
 from livewatcher.core.interfaces import Renderer
 from livewatcher.core.models import Clip
 from livewatcher.render import renderer as renderer_mod
+from livewatcher.render.layouts import find_font
 from livewatcher.render.renderer import FfmpegRenderer, RenderError, SourceInfo, parse_probe
 from tests.conftest import needs_ffmpeg
 
@@ -112,7 +113,7 @@ def test_parse_probe() -> None:
 
 async def run_three(stub, store, bus, raw_clip) -> list[tuple[float, float]]:
     r = stub.renderer(store, bus)
-    stub.set(sleep=0.4)
+    stub.set(sleep=1.0)
     layouts = [LayoutConfig(layout=n) for n in ("blur_fit", "crop", "stacked")]
     paths = await asyncio.gather(*(r.render(raw_clip, lay) for lay in layouts))
     assert [p.name for p in paths] == ["abc123_blur_fit.mp4", "abc123_crop.mp4", "abc123_stacked.mp4"]
@@ -143,7 +144,7 @@ async def test_limit_three_runs_together(stub, store, bus, raw_clip) -> None:
 
 async def test_limit_is_read_when_render_starts(stub, store, bus, raw_clip) -> None:
     r = stub.renderer(store, bus)
-    stub.set(sleep=0.6)
+    stub.set(sleep=1.5)
     tasks = [asyncio.create_task(r.render(raw_clip, LayoutConfig(layout=n)))
              for n in ("blur_fit", "crop", "stacked")]
     await asyncio.sleep(0.2)
@@ -244,7 +245,7 @@ async def test_cancel_kills_ffmpeg(stub, store, bus, raw_clip) -> None:
 
 async def test_cancel_while_waiting_frees_nothing_it_did_not_take(stub, store, bus, raw_clip) -> None:
     r = stub.renderer(store, bus)
-    stub.set(sleep=0.5)
+    stub.set(sleep=1.0)
     first = asyncio.create_task(r.render(raw_clip, LayoutConfig(layout="crop")))
     await asyncio.sleep(0.1)
     waiting = asyncio.create_task(r.render(raw_clip, LayoutConfig(layout="stacked")))
@@ -277,7 +278,8 @@ def _real_clip(store: ConfigStore, src: Path, clip_id: str = "real01", streamer:
                                     LayoutConfig(layout="crop", crop_x=0), STACKED])
 async def test_real_render(sample_video: Path, store, bus, layout: LayoutConfig) -> None:
     clip = _real_clip(store, sample_video)
-    r = FfmpegRenderer(store=store, bus=bus)
+    assert find_font() is not None  # so the title banner is really drawn
+    r = FfmpegRenderer(store=store, bus=bus, title_fallback=False)
     t0 = time.monotonic()
     path = await r.render(clip, layout)
     elapsed = time.monotonic() - t0
@@ -307,7 +309,7 @@ def odd_video(tmp_path: Path) -> Path:
 @needs_ffmpeg
 async def test_real_render_odd_source_without_audio(odd_video: Path, store, bus) -> None:
     src = odd_video
-    r = FfmpegRenderer(store=store, bus=bus)
+    r = FfmpegRenderer(store=store, bus=bus, title_fallback=False)
     for layout in (LayoutConfig(layout="crop", crop_x=1), STACKED, LayoutConfig(fit_zoom=1.3)):
         path = await r.render(_real_clip(store, src, "odd01"), layout)
         info = ffprobe_json(path)
@@ -323,7 +325,8 @@ async def test_real_title_with_special_characters(sample_video: Path, tmp_path: 
     cfg = Config(general=General(data_dir=str(tmp_path / "data")), render=Render(burn_title=True),
                  streamers=[Streamer(name=name)])
     store = ConfigStore(config=cfg, bus=bus)
-    r = FfmpegRenderer(store=store, bus=bus)
+    assert find_font() is not None
+    r = FfmpegRenderer(store=store, bus=bus, title_fallback=False)
     path = await r.render(_real_clip(store, sample_video, streamer=name.lower()), LayoutConfig(layout="crop"))
     assert path.is_file()
 
@@ -335,3 +338,11 @@ async def test_real_failure_reports_ffmpeg_message(sample_video: Path, store, bu
         await FfmpegRenderer(store=store, bus=bus).render(_real_clip(store, sample_video), LayoutConfig())
     assert "nosuchfilter" in str(err.value)
     assert list(out_dir(store).iterdir()) == []
+
+
+async def test_font_error_raises_without_fallback(stub, store, bus, raw_clip) -> None:
+    stub.set(mode="fontfail")
+    r = FfmpegRenderer(store=store, bus=bus, ffmpeg_cmd=[sys.executable, str(stub.ffmpeg)],
+                       ffprobe_cmd=[sys.executable, str(stub.ffprobe)], title_fallback=False)
+    with pytest.raises(RenderError, match="Cannot find a valid font"):
+        await r.render(raw_clip, LayoutConfig())
