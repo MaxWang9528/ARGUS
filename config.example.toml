@@ -1,0 +1,64 @@
+# livewatcher settings. Copy this file to config.toml and edit it.
+# config.toml is ignored by git, so secrets in it stay on this machine.
+
+[general]
+data_dir = "~/.local/share/livewatcher"   # buffers, clips, database
+auto_upload = false            # also switchable from the dashboard
+dashboard_host = "127.0.0.1"
+dashboard_port = 8787
+max_concurrent_renders = 1
+retention_days = 7             # delete old raw and rendered clips
+
+[twitch]                       # optional: Helix keys for faster live checks and titles
+client_id = ""
+client_secret = ""
+live_check_interval_s = 60
+
+[detection]                    # defaults for every streamer; a [[streamers]] entry can override any of these
+bin_s = 1
+smooth_s = 5
+baseline_window_s = 600        # how far back "normal chat" is measured
+multiplier = 3.0               # a peak needs chat at this many times normal
+z_threshold = 4.0
+min_msgs_per_sec = 2.0
+min_unique_chatters = 5
+end_ratio = 1.5                # the peak ends when chat falls below this many times normal
+cooldown_s = 90
+preroll_s = 25                 # seconds kept before the peak
+postroll_s = 6                 # seconds kept after the peak ends
+max_clip_s = 60
+ignore_users = ["nightbot", "streamelements", "moobot", "fossabot"]
+
+[capture]
+quality = "720p60,720p,best"
+buffer_minutes = 3
+snapshot_interval_s = 2
+low_latency = true
+filter_ads = true
+sync_offset_s = 0.0            # signed seconds; a positive number moves clips later
+
+[render]
+default_layout = "blur_fit"    # blur_fit, crop or stacked
+fit_zoom = 1.0                 # blur_fit only: above 1.0 enlarges the picture and trims the sides
+resolution = "1080x1920"
+burn_title = true
+
+[tiktok]
+browser_profile_dir = "~/.local/share/livewatcher/browser_profile"
+browser_channel = "chromium"   # or "chrome" if Google Chrome is installed
+cookies_file = ""              # fallback if TikTok blocks the in-app login
+headless = false
+dry_run = true                 # stop before clicking Post and save a screenshot
+caption_template = "{streamer} on Twitch 🔴 #{streamer} #twitch #clips"
+max_uploads_per_day = 6
+min_minutes_between_uploads = 45
+
+[[streamers]]
+name = "somestreamer"
+enabled = true
+layout = "stacked"
+crop_x = 0.5                                           # crop layout: 0 = left, 1 = right
+stack_top = { x = 0.0, y = 0.6, w = 0.25, h = 0.4 }    # fractions of the frame
+stack_bottom = { x = 0.15, y = 0.0, w = 0.7, h = 1.0 }
+stack_split = 0.4                                      # share of the height the top region gets
+multiplier = 2.5                                       # a detection override for this streamer

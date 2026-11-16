@@ -1,0 +1,30 @@
+[project]
+name = "livewatcher"
+version = "0.1.0"
+description = "Watch Twitch streams, clip chat peaks, upload to TikTok"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "streamlink",
+    "websockets",
+    "playwright",
+    "pillow",
+    "tomlkit",
+    "httpx",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+extend-exclude = ["web/vendor"]
