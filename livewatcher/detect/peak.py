@@ -16,7 +16,10 @@ The signal:
   leaving out bins inside a peak; the spread is the MAD scaled to a standard
   deviation, never below ``MIN_SPREAD`` (integer counts make the MAD exactly 0
   in quiet chats);
-- ``z = (rate - baseline) / spread``.
+- ``z = (rate - baseline) / spread``;
+- if the median of the last ``RECENT_BASELINE_S`` is higher, it is the baseline
+  instead (a step to a new chat level is not a peak), and after
+  ``DORMANT_AFTER_S`` of total silence the 60 s warm-up starts again.
 """
 
 from __future__ import annotations
@@ -41,6 +44,12 @@ MIN_SPREAD = 0.25         # msgs/s; floor for the spread so silent chat can't gi
 MIN_HISTORY_S = 60.0      # no peak can start before this much history
 MAX_RISE_LOOKBACK_S = 20.0  # ts_start is at most this far before the bin that triggered
 MAX_PER_USER_PER_S = 2.0  # one user counts for at most this many msgs/s (stops a lone spammer)
+RECENT_BASELINE_S = 120.0  # a short-window median that lifts the baseline after a level step
+DORMANT_AFTER_S = 120.0   # this long with no chat (offline, disconnected) restarts the warm-up
+
+
+def effective_bin_s(det: Detection) -> float:
+    return float(det.bin_s) if det.bin_s > 0 else 1.0
 
 
 def is_counted(msg: ChatMessage, det: Detection) -> bool:
@@ -85,6 +94,7 @@ class PeakTracker:
         self._history: deque[tuple[float, float]] = deque()      # (ts, rate) for the baseline
         self._rise: deque[tuple[float, bool]] = deque()          # (bin start, above baseline + spread)
         self._bins_closed = 0
+        self._silent_since: float | None = None
         self._active: _Active | None = None
         self._last_end: float | None = None
 
@@ -94,13 +104,14 @@ class PeakTracker:
 
     # ---- input -----------------------------------------------------------------
     def _check_bin_s(self, det: Detection) -> float:
-        if self._bin_s != det.bin_s:
+        bin_s = effective_bin_s(det)
+        if self._bin_s != bin_s:
             if self._bin_s is not None:
-                log.info("bin_s changed to %s, restarting detection", det.bin_s,
+                log.info("bin_s changed to %s, restarting detection", bin_s,
                          extra={"streamer": self.streamer})
-            self._bin_s = float(det.bin_s)
+            self._bin_s = bin_s
             self._reset()
-        return self._bin_s
+        return bin_s
 
     def feed(self, msg: ChatMessage, det: Detection) -> bool:
         """Count one message. Returns False if it was filtered out."""
@@ -140,12 +151,23 @@ class PeakTracker:
         return samples, peaks
 
     # ---- maths -----------------------------------------------------------------
-    def _baseline(self) -> tuple[float, float]:
+    @staticmethod
+    def _median_mad(rates: list[float]) -> tuple[float, float]:
+        base = statistics.median(rates)
+        return base, statistics.median(abs(r - base) for r in rates)
+
+    def _baseline(self, end: float, bin_s: float) -> tuple[float, float]:
+        """Median and spread of the history. When the median of the last
+        RECENT_BASELINE_S is higher (chat stepped up to a new level, e.g. the
+        stream went live), that one is used, so a level change isn't a peak."""
         if not self._history:
             return 0.0, MIN_SPREAD
-        rates = [r for _, r in self._history]
-        base = statistics.median(rates)
-        mad = statistics.median(abs(r - base) for r in rates)
+        base, mad = self._median_mad([r for _, r in self._history])
+        recent = [r for ts, r in self._history if ts > end - RECENT_BASELINE_S]
+        if len(recent) * bin_s >= RECENT_BASELINE_S / 4:
+            r_base, r_mad = self._median_mad(recent)
+            if r_base > base:
+                base, mad = r_base, r_mad
         return base, max(mad * MAD_TO_SD, MIN_SPREAD)
 
     def _close(self, idx: int, bin_s: float, det: Detection) -> tuple[RateSample, PeakEvent | None]:
@@ -168,7 +190,7 @@ class PeakTracker:
         if self._active is not None:
             base, spread = self._active.baseline, self._active.spread
         else:
-            base, spread = self._baseline()
+            base, spread = self._baseline(end, bin_s)
         z = (rate - base) / spread
         threshold = max(base * det.multiplier, base + det.z_threshold * spread, det.min_msgs_per_sec)
 
@@ -199,6 +221,15 @@ class PeakTracker:
                 self._last_end = ts_end
 
         if self._active is None and peak is None:
+            if rate > 0:
+                self._silent_since = None
+            elif self._silent_since is None:
+                self._silent_since = start
+            elif end - self._silent_since >= DORMANT_AFTER_S:
+                # Chat has been dead for a while (offline or disconnected): whatever
+                # comes next is a new level, so warm up again from scratch.
+                self._history.clear()
+                self._bins_closed = 0
             self._history.append((end, rate))  # bins inside a peak stay out of the baseline
 
         sample = RateSample(streamer=self.streamer, ts=end, rate=rate, baseline=base,
@@ -254,7 +285,8 @@ class ChatPeakDetector:
     def _bin_s(self) -> float:
         cfg = self.store.get()
         names = [s.name for s in cfg.enabled_streamers()]
-        return min((cfg.detection_for(n).bin_s for n in names), default=cfg.detection.bin_s) or 1.0
+        return min((effective_bin_s(cfg.detection_for(n)) for n in names),
+                   default=effective_bin_s(cfg.detection))
 
     async def run(self) -> None:
         sub = self.bus.subscribe(Topic.CHAT)

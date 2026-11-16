@@ -205,3 +205,24 @@ async def test_detector_run_ticks_on_the_wall_clock(store, bus):
     assert len([s for s in got if s.streamer == "beta"]) >= 4
     assert max(s.rate for s in got if s.streamer == "alpha") > 0
     assert len(bus._subs) == 1  # the detector closed its subscription
+
+
+def test_silence_then_steady_chat_gives_no_peaks():
+    # Offline (or disconnected) for 10+ minutes, then the stream goes live at 4 msg/s.
+    _, peaks = run(chat([0.0] * 700 + [4.0] * 900), 1600)
+    assert peaks == []
+
+
+def test_a_step_to_a_new_chat_level_gives_at_most_one_peak():
+    for rates in ([0.05] * 700 + [4.0] * 900, [1.0] * 700 + [4.0] * 900):
+        _, peaks = run(chat(rates), len(rates))
+        assert len(peaks) <= 1
+    # ... and a spike on the new level is still found.
+    rates = [1.0] * 700 + spike(4.0, 900, [(400, 10, 30.0)])
+    _, peaks = run(chat(rates), len(rates))
+    assert any(abs(p.ts_start - (T0 + 1100)) <= 6 for p in peaks)
+
+
+def test_bad_bin_s_does_not_crash():
+    samples, _ = run(chat([4.0] * 30), 30, Detection(bin_s=0))
+    assert len(samples) == 30
