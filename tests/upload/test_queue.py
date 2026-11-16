@@ -344,3 +344,40 @@ async def test_run_loop_processes_and_stops_cleanly(store, bus, db, make_clip):
         await task
     assert status(db, clip) is ClipStatus.DRY_RUN_OK
     assert q._sub not in bus._subs
+
+
+async def test_approval_during_a_blocked_upload_does_not_resume(store, bus, db, make_clip, clock):
+    """Approvals and config changes made while the blocked upload ran are old news."""
+    real(store, min_minutes_between_uploads=0)
+    other = make_clip(status=ClipStatus.PENDING_REVIEW, created_at=T0 + 500)
+    calls = []
+
+    class BlockedWhileUserActs:
+        async def upload(self, clip, caption, dry_run):
+            calls.append(clip.id)
+            if len(calls) > 1:
+                return R("ok")
+            c = db.get_clip(other.id)
+            c.status = ClipStatus.QUEUED  # approved by hand during the upload
+            db.save_clip(c)
+            bus.publish(Topic.CLIP, c)
+            store.update({"tiktok": {"headless": True}})
+            return R("blocked", "captcha")
+
+    db.save_clip(other)
+    q = ClipUploadQueue(store=store, bus=bus, db=db, uploader=BlockedWhileUserActs(),
+                        clock=clock, sleep=clock.sleep)
+    first = make_clip()
+    db.save_clip(first)
+    assert await q.step() is True
+    assert q.paused_reason
+    assert await q.step() is False
+    assert status(db, other) is ClipStatus.QUEUED
+    assert calls == [first.id]
+    # a fresh approval after the pause does resume
+    c = db.get_clip(first.id)
+    c.status, c.error = ClipStatus.QUEUED, ""
+    db.save_clip(c)
+    bus.publish(Topic.CLIP, c)
+    assert await q.step() is True
+    assert q.paused_reason is None

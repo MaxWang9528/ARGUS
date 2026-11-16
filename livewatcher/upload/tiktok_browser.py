@@ -211,9 +211,10 @@ def classify_error(exc: BaseException, *, posted: bool = False) -> tuple[str, st
     text = str(exc)
     if "error while loading shared libraries" in text or "Host system is missing dependencies" in text:
         return "blocked", ("the browser can't start: system libraries are missing "
-                           "(run `sudo playwright install-deps chromium`)")
+                           "(run `sudo ~/.venvs/livewatcher/bin/python -m playwright install-deps chromium`)")
     if "Executable doesn't exist" in text:
-        return "blocked", "the browser isn't installed (run `playwright install chromium`)"
+        return "blocked", ("the browser isn't installed "
+                           "(run `~/.venvs/livewatcher/bin/python -m playwright install chromium`)")
     if re.search(r"net::ERR_|ECONNRESET|ECONNREFUSED|ENOTFOUND|NS_ERROR_NET", text):
         return "transient", f"network error: {msg}"
     if isinstance(exc, (ConnectionError, OSError)) and not isinstance(exc, FileNotFoundError):

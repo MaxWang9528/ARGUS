@@ -110,6 +110,9 @@ class ClipUploadQueue:
                 self._last_status[payload.id] = payload.status
 
     def pause(self, reason: str) -> None:
+        # Approvals and config changes from before this point are old news: drain
+        # them first, so only a later one resumes the queue.
+        self._drain_events()
         self.paused_reason = reason
         log.warning("upload queue paused: %s. It resumes when you approve a clip again or "
                     "change the settings.", reason)
@@ -212,8 +215,7 @@ class ClipUploadQueue:
             log.exception("uploader raised", extra={"streamer": clip.streamer})
             result = UploadResult(kind="blocked", error=f"uploader error: {type(exc).__name__}: {exc}")
         self.db.add_upload(clip.id, result.kind, result.error, ts=self._clock())
-        if result.screenshot:
-            clip.debug_screenshot = result.screenshot
+        clip.debug_screenshot = result.screenshot
         return result
 
     def _finish(self, clip: Clip, status: ClipStatus, error: str) -> None:
