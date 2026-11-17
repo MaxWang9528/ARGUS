@@ -10,6 +10,9 @@ Safety rules this module keeps:
   ``blocked`` (never retried). Network trouble before Post is ``transient``.
 - Once Post has been clicked nothing is ``transient`` any more, so the queue can't
   retry and post the same clip twice.
+- ``account`` picks the TikTok account, i.e. which browser profile is opened. The
+  ``blocked`` messages for a logged-out profile or a CAPTCHA start with the phrases in
+  ``ACCOUNT_BLOCKS``; ``blocked_scope`` tells the queue to pause only that account.
 
 Every selector is in ``SELECTORS``. They are the best-known structure of TikTok
 Studio's upload page and have NOT been checked against the live page yet.
@@ -27,10 +30,18 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from ..core.config import ConfigStore
+from ..core.config import ConfigStore, TikTokAccount
 from ..core.events import EventBus
 from ..core.models import Clip, UploadResult
-from .login import UPLOAD_URL, is_logged_in, open_context
+from .login import (
+    UPLOAD_URL,
+    ProfileBusy,
+    _default_playwright,
+    claim_profile,
+    is_logged_in,
+    login_hint,
+    open_context,
+)
 
 log = logging.getLogger("livewatcher.upload")
 
@@ -126,6 +137,16 @@ MIN_VIDEO_BYTES = 10_000            # anything smaller is a placeholder, not a v
 MAX_VIDEO_BYTES = 2 * 1024 ** 3     # conservative web-upload limit
 _INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))
 
+# How the ``blocked`` errors that concern one account (not TikTok's page, not the
+# machine) begin. ``blocked_scope`` matches on these, so keep the messages in step.
+NOT_LOGGED_IN = "not logged in to TikTok"
+SENT_TO_LOGIN = "TikTok sent the browser to the login page"
+LOGIN_PROMPT = "TikTok shows a login prompt"
+CAPTCHA = "TikTok is showing a CAPTCHA or verification"
+ACCOUNT_BLOCKS = (NOT_LOGGED_IN, SENT_TO_LOGIN, LOGIN_PROMPT, CAPTCHA)
+# Words that mark the same problems in errors from other uploaders (fakes, tests).
+_ACCOUNT_WORDS = re.compile(r"captcha|verif|logged (in|out)|log ?in\b|login", re.IGNORECASE)
+
 
 # --------------------------------------------------------------------------------------
 # Pure helpers (tested without a browser)
@@ -214,6 +235,18 @@ def check_video_file(path: str | Path | None, *, min_bytes: int = MIN_VIDEO_BYTE
     return None
 
 
+def blocked_scope(error: str) -> str:
+    """What a ``blocked`` result should pause: ``"account"`` when the account itself
+    is the problem (logged out, CAPTCHA), else ``"global"`` (TikTok's page changed, the
+    browser can't start, an unclear state after Post or Save draft, anything unknown)."""
+    text = error or ""
+    if text.startswith(ACCOUNT_BLOCKS):
+        return "account"
+    if "was clicked" in text or text.startswith("the caption didn't come out"):
+        return "global"  # (the second quotes the editor's text, which may say anything)
+    return "account" if _ACCOUNT_WORDS.search(text) else "global"
+
+
 def classify_error(exc: BaseException, *, posted: bool = False) -> tuple[str, str]:
     """Map an unexpected exception to (UploadResult.kind, message)."""
     msg = f"{type(exc).__name__}: {str(exc).strip().splitlines()[0] if str(exc).strip() else ''}".rstrip(": ")
@@ -258,12 +291,6 @@ class _Run:
         self.posted = False
 
 
-def _default_playwright() -> Any:
-    from playwright.async_api import async_playwright
-
-    return async_playwright()
-
-
 class TikTokUploader:
     """Implements ``Uploader`` with Playwright and the profile from ``login-tiktok``."""
 
@@ -283,6 +310,7 @@ class TikTokUploader:
                  max_bytes: int = MAX_VIDEO_BYTES) -> None:
         self.store, self.bus = store, bus
         self._playwright_factory = playwright_factory or _default_playwright
+        self.current_account: TikTokAccount | None = None  # the one being uploaded to now
         self._sleep, self._monotonic = sleep, monotonic
         self._rng = rng or random.Random()
         self.upload_url = upload_url
@@ -293,7 +321,8 @@ class TikTokUploader:
         self.min_bytes, self.max_bytes = min_bytes, max_bytes
 
     # ---- entry point -------------------------------------------------------------------
-    async def upload(self, clip: Clip, caption: str, dry_run: bool) -> UploadResult:
+    async def upload(self, clip: Clip, caption: str, dry_run: bool,
+                     account: TikTokAccount | None = None) -> UploadResult:
         extra = {"streamer": clip.streamer}
         problem = check_video_file(clip.out_path, min_bytes=self.min_bytes, max_bytes=self.max_bytes)
         if problem:
@@ -301,23 +330,32 @@ class TikTokUploader:
             return UploadResult(kind="blocked", error=problem)
 
         cfg = self.store.get()
+        if account is None:
+            account = cfg.tiktok_accounts()[0]
         run = _Run(clip, cfg.data_dir / "upload_debug")
         try:
-            async with self._playwright_factory() as pw:
-                context = await open_context(pw, cfg)
-                try:
-                    result = await self._drive(context, run, caption, dry_run)
-                finally:
-                    await self._close(context)
+            with claim_profile(account):
+                self.current_account = account
+                async with self._playwright_factory() as pw:
+                    context = await open_context(pw, cfg, account)
+                    try:
+                        result = await self._drive(context, run, caption, dry_run)
+                    finally:
+                        await self._close(context)
         except asyncio.CancelledError:
             raise
+        except ProfileBusy as exc:
+            # A login window or a login check has the profile open. Nothing was done.
+            result = UploadResult(kind="transient", error=f"{exc}; trying again once it's closed")
         except _Stop as stop:
             result = UploadResult(kind=stop.kind, error=str(stop), screenshot=stop.shot)
         except Exception as exc:  # noqa: BLE001 - must not raise for expected failures
             kind, msg = classify_error(exc, posted=run.posted)
             result = UploadResult(kind=kind, error=msg)
+        finally:
+            self.current_account = None
         level = logging.INFO if result.kind in ("ok", "dry_run") else logging.WARNING
-        log.log(level, "clip %s upload: %s%s", clip.id, result.kind,
+        log.log(level, "clip %s upload to account %s: %s%s", clip.id, account.name, result.kind,
                 f" ({result.error})" if result.error else "", extra=extra)
         return result
 
@@ -353,7 +391,8 @@ class TikTokUploader:
         page = context.pages[0] if context.pages else await context.new_page()
         run.page = page
         if not await is_logged_in(context):
-            raise _Stop("blocked", "not logged in to TikTok: run `./lw login-tiktok` and log in")
+            raise _Stop("blocked", f"{NOT_LOGGED_IN} ({self._account_label()}): "
+                                   f"run `{login_hint(self.current_account)}` and log in")
 
         try:
             await page.goto(self.upload_url, wait_until="domcontentloaded",
@@ -510,14 +549,18 @@ class TikTokUploader:
             await self._pause(0.5, 1.2)
 
     async def _check_blockers(self, page: Any) -> None:
+        label, hint = self._account_label(), login_hint(self.current_account)
         if "/login" in (page.url or ""):
-            raise _Stop("blocked", "TikTok sent the browser to the login page: run `./lw login-tiktok`")
+            raise _Stop("blocked", f"{SENT_TO_LOGIN} ({label}): run `{hint}`")
         for frame in self._frames(page):
             if await self._present(frame, "captcha") is not None:
-                raise _Stop("blocked", "TikTok is showing a CAPTCHA or verification; solve it in the "
-                                       "browser (run with headless off), then approve the clip again")
+                raise _Stop("blocked", f"{CAPTCHA} ({label}); solve it in the browser (open the "
+                                       "account's login window), then approve the clip again")
             if await self._present(frame, "login_wall") is not None:
-                raise _Stop("blocked", "TikTok shows a login prompt: run `./lw login-tiktok`")
+                raise _Stop("blocked", f"{LOGIN_PROMPT} ({label}): run `{hint}`")
+
+    def _account_label(self) -> str:
+        return f"account {self.current_account.name}" if self.current_account else "no account"
 
     # ---- locator helpers ----------------------------------------------------------------
     @staticmethod

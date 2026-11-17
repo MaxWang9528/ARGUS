@@ -71,7 +71,7 @@ async def test_real_upload_ok(make_queue, store, db, make_clip, clock):
 
 
 async def test_daily_limit_is_respected(make_queue, store, db, make_clip, clock):
-    real(store, max_uploads_per_day=2, min_minutes_between_uploads=0)
+    real(store, max_uploads_per_day=2, min_minutes_between_uploads=0, max_queue_age_h=0)
     q, up = make_queue()
     clips = [make_clip() for _ in range(3)]
     for c in clips:
@@ -276,7 +276,7 @@ async def test_missing_render_fails_that_clip_without_pausing(make_queue, db, ma
 
 async def test_uploader_that_raises_counts_as_blocked(store, bus, db, make_clip, clock):
     class Broken:
-        async def upload(self, clip, caption, dry_run):
+        async def upload(self, clip, caption, dry_run, account=None):
             raise ValueError("bug")
 
     q = ClipUploadQueue(store=store, bus=bus, db=db, uploader=Broken(), clock=clock, sleep=clock.sleep)
@@ -313,7 +313,7 @@ async def test_cancel_during_upload_leaves_clip_failed(store, bus, db, make_clip
     started = asyncio.Event()
 
     class Slow:
-        async def upload(self, clip, caption, dry_run):
+        async def upload(self, clip, caption, dry_run, account=None):
             started.set()
             await asyncio.sleep(3600)
 
@@ -353,7 +353,7 @@ async def test_approval_during_a_blocked_upload_does_not_resume(store, bus, db, 
     calls = []
 
     class BlockedWhileUserActs:
-        async def upload(self, clip, caption, dry_run):
+        async def upload(self, clip, caption, dry_run, account=None):
             calls.append(clip.id)
             if len(calls) > 1:
                 return R("ok")

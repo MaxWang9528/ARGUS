@@ -37,10 +37,13 @@ CREATE TABLE IF NOT EXISTS uploads (
     clip_id TEXT NOT NULL,
     ts REAL NOT NULL,
     kind TEXT NOT NULL,
-    error TEXT NOT NULL DEFAULT ''
+    error TEXT NOT NULL DEFAULT '',
+    account TEXT NOT NULL DEFAULT 'default'
 );
 CREATE INDEX IF NOT EXISTS uploads_ts ON uploads(ts);
 """
+
+DEFAULT_ACCOUNT = "default"  # what upload rows from before accounts existed count as
 
 
 class Database:
@@ -53,7 +56,16 @@ class Database:
             if str(path) != ":memory:":
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Bring an older database up to date. Called with the lock held."""
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(uploads)")}
+        if "account" not in cols:  # before multiple TikTok accounts: every row was "default"
+            self._conn.execute(
+                f"ALTER TABLE uploads ADD COLUMN account TEXT NOT NULL DEFAULT '{DEFAULT_ACCOUNT}'")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS uploads_account_ts ON uploads(account, ts)")
 
     def close(self) -> None:
         with self._lock:
@@ -114,23 +126,55 @@ class Database:
         return [PeakEvent.model_validate_json(r[0]) for r in rows]
 
     # ---- upload history (used for rate limits) -------------------------------
-    def add_upload(self, clip_id: str, kind: str, error: str = "", ts: float | None = None) -> None:
-        """Record one upload attempt. ``kind`` is an UploadResult.kind."""
+    def add_upload(self, clip_id: str, kind: str, error: str = "", ts: float | None = None,
+                   account: str = DEFAULT_ACCOUNT) -> None:
+        """Record one upload attempt. ``kind`` is an UploadResult.kind; ``account`` the
+        TikTok account it went to."""
         with self._lock:
             self._conn.execute(
-                "INSERT INTO uploads(clip_id, ts, kind, error) VALUES(?,?,?,?)",
-                (clip_id, ts if ts is not None else time.time(), kind, error),
+                "INSERT INTO uploads(clip_id, ts, kind, error, account) VALUES(?,?,?,?,?)",
+                (clip_id, ts if ts is not None else time.time(), kind, error, account),
             )
             self._conn.commit()
 
-    def count_uploads_since(self, since: float, kind: str = "ok") -> int:
+    @staticmethod
+    def _account_filter(account: str | None) -> tuple[str, tuple]:
+        return ("", ()) if account is None else (" AND account=?", (account,))
+
+    def count_uploads_since(self, since: float, kind: str = "ok", account: str | None = None) -> int:
+        """Attempts of ``kind`` since ``since``; all accounts, or just ``account``."""
+        extra, args = self._account_filter(account)
         with self._lock:
             row = self._conn.execute(
-                "SELECT COUNT(*) FROM uploads WHERE ts>=? AND kind=?", (since, kind)
+                "SELECT COUNT(*) FROM uploads WHERE ts>=? AND kind=?" + extra, (since, kind, *args)
             ).fetchone()
         return int(row[0])
 
-    def last_upload_ts(self, kind: str = "ok") -> float | None:
+    def upload_times_since(self, since: float, kind: str = "ok", account: str | None = None) -> list[float]:
+        """Timestamps of attempts of ``kind`` since ``since``, oldest first."""
+        extra, args = self._account_filter(account)
         with self._lock:
-            row = self._conn.execute("SELECT MAX(ts) FROM uploads WHERE kind=?", (kind,)).fetchone()
+            rows = self._conn.execute(
+                "SELECT ts FROM uploads WHERE ts>=? AND kind=?" + extra + " ORDER BY ts",
+                (since, kind, *args)).fetchall()
+        return [r[0] for r in rows]
+
+    def last_upload_ts(self, kind: str = "ok", account: str | None = None) -> float | None:
+        extra, args = self._account_filter(account)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(ts) FROM uploads WHERE kind=?" + extra, (kind, *args)).fetchone()
         return row[0]
+
+    def last_upload_account(self, accounts: list[str] | None = None) -> str | None:
+        """The account of the most recent attempt of any kind (dry runs too), optionally
+        only among ``accounts``. None if there is none."""
+        sql, args = "SELECT account FROM uploads", []
+        if accounts is not None:
+            if not accounts:
+                return None
+            sql += f" WHERE account IN ({','.join('?' * len(accounts))})"
+            args = list(accounts)
+        with self._lock:
+            row = self._conn.execute(sql + " ORDER BY ts DESC, id DESC LIMIT 1", args).fetchone()
+        return row[0] if row else None
