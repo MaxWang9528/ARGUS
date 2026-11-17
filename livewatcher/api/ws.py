@@ -7,10 +7,10 @@ published after the handshake is missed, and closed when the socket closes.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 from typing import Any
 
+import anyio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -38,29 +38,23 @@ async def events(websocket: WebSocket) -> None:
     lw = websocket.app.state.lw
     with lw.bus.subscribe(*RELAYED, maxsize=2000) as sub:
         await websocket.accept()
+        # A task group (not bare asyncio tasks) so that a cancel from the server,
+        # on shutdown, reaches both halves and ends the handler cleanly.
+        async with anyio.create_task_group() as tg:
 
-        async def send_events() -> None:
-            async for topic, payload in sub:
-                await websocket.send_json(encode(topic, payload))
+            async def send_events() -> None:
+                try:
+                    async for topic, payload in sub:
+                        await websocket.send_json(encode(topic, payload))
+                except (WebSocketDisconnect, RuntimeError, OSError):
+                    pass  # the socket went away mid-send
+                tg.cancel_scope.cancel()
 
-        async def wait_for_close() -> None:
+            tg.start_soon(send_events)
             # The page sends nothing we need; reading is how a disconnect is noticed.
-            with contextlib.suppress(WebSocketDisconnect):
+            with contextlib.suppress(WebSocketDisconnect, RuntimeError):
                 while True:
                     message = await websocket.receive()
                     if message["type"] == "websocket.disconnect":
-                        return
-
-        sender = asyncio.create_task(send_events())
-        closer = asyncio.create_task(wait_for_close())
-        try:
-            done, _ = await asyncio.wait({sender, closer}, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                if task is sender and not task.cancelled() and task.exception() is not None:
-                    exc = task.exception()
-                    if not isinstance(exc, (WebSocketDisconnect, RuntimeError, OSError)):
-                        raise exc
-        finally:
-            for task in (sender, closer):
-                task.cancel()
-            await asyncio.gather(sender, closer, return_exceptions=True)
+                        break
+            tg.cancel_scope.cancel()

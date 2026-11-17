@@ -1,1 +1,615 @@
-<!doctype html><title>x</title><script src="app.js"></script>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>livewatcher</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='3' width='14' height='10' rx='2' fill='%2318212b'/%3E%3Ccircle cx='8' cy='8' r='2.6' fill='%23e5484d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/uPlot-1.6.32.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="vendor/uPlot-1.6.32.iife.min.js"></script>
+  <script defer src="vendor/hls-1.5.20.min.js"></script>
+  <script defer src="app.js"></script>
+  <script defer src="vendor/alpine-3.14.9.min.js"></script>
+</head>
+<body x-data="dash" x-cloak @keydown.window="onKey($event)">
+
+<header class="top">
+  <div class="brand" aria-label="livewatcher">
+    <span class="brand-mark" aria-hidden="true"><i></i></span>
+    <span class="brand-name">livewatcher</span>
+  </div>
+  <nav class="views" aria-label="Views">
+    <template x-for="v in views" :key="v.id">
+      <button type="button" class="view-tab" :class="{ on: view === v.id }" :aria-current="view === v.id ? 'page' : null"
+              :data-testid="'nav-' + v.id" @click="go(v.id)">
+        <span x-text="v.label"></span>
+        <span class="count" x-show="v.id === 'clips' && reviewCount > 0" x-text="reviewCount"></span>
+      </button>
+    </template>
+  </nav>
+  <div class="top-right">
+    <span class="chip warn" x-show="config && config.tiktok.dry_run" title="Uploads stop before the Post button">Dry run</span>
+    <span class="chip" x-show="isDemo" title="Every part is a stand-in: no Twitch, no TikTok">Demo</span>
+    <label class="switch header-switch" :class="{ on: autoUpload }">
+      <input type="checkbox" role="switch" data-testid="auto-upload" :checked="autoUpload"
+             :disabled="!config" @change="setAutoUpload($event.target.checked)">
+      <span class="track" aria-hidden="true"></span>
+      <span class="switch-label">Auto-upload <b x-text="autoUpload ? 'on' : 'off'"></b></span>
+    </label>
+    <span class="conn" :class="connState" :title="connTitle()"><i></i></span>
+  </div>
+</header>
+
+<div class="banner" role="status" x-show="connState !== 'open' && everConnected" x-transition.opacity>
+  <strong>Lost the connection to livewatcher.</strong>
+  <span x-text="retryIn > 0 ? 'Trying again in ' + retryIn + ' s.' : 'Reconnecting…'"></span>
+  <span>Live updates are paused; the page catches up once it's back.</span>
+  <button type="button" class="btn small" @click="reconnectNow()">Retry now</button>
+</div>
+<div class="banner" role="status" x-show="connState !== 'open' && !everConnected && loadError">
+  <strong>Can't reach livewatcher.</strong>
+  <span x-text="loadError"></span>
+  <button type="button" class="btn small" @click="reconnectNow()">Retry now</button>
+</div>
+
+<main>
+
+<!-- ================================================================ STREAMS -->
+<section class="view" x-show="view === 'streams'" aria-label="Streams">
+  <div class="toolbar">
+    <h1>Streams</h1>
+    <p class="sub" x-text="liveSummary()"></p>
+    <div class="spacer"></div>
+    <p class="hint" x-show="streamers.length > 1">Arrow keys switch streamer, Esc closes</p>
+    <div class="seg" role="group" aria-label="Arrangement">
+      <button type="button" :class="{ on: arrange === 'strip' }" @click="setArrange('strip')">Strip</button>
+      <button type="button" :class="{ on: arrange === 'grid' }" @click="setArrange('grid')">Grid</button>
+    </div>
+  </div>
+
+  <template x-if="streamers.length === 0 && loaded">
+    <div class="empty">
+      <p>No streamers yet.</p>
+      <button type="button" class="btn primary" @click="go('settings')">Add a streamer</button>
+    </div>
+  </template>
+
+  <!-- the large view of one streamer -->
+  <template x-for="f in (focused ? [focused] : [])" :key="f.name">
+    <article class="focus" data-testid="focus" :data-name="focused.name">
+      <div class="monitor big" :class="monitorClass(focused)">
+        <template x-if="showLive(focused)">
+          <video muted autoplay playsinline x-init="attachLive($el, focused.name)"></video>
+        </template>
+        <template x-if="!showLive(focused) && snapUrl(focused.name)">
+          <img :src="snapUrl(focused.name)" :alt="'Latest frame from ' + focused.name">
+        </template>
+        <template x-if="!showLive(focused) && !snapUrl(focused.name)">
+          <div class="no-picture"><p x-text="noPictureText(focused)"></p></div>
+        </template>
+        <div class="tally" aria-hidden="true"></div>
+        <div class="overlay">
+          <span class="state-pill" x-text="stateText(focused)"></span>
+          <span class="buffer-pill" x-show="bufferText(focused)" x-text="bufferText(focused)"></span>
+        </div>
+      </div>
+      <div class="focus-side">
+        <div class="focus-head">
+          <div>
+            <h2 class="streamer-name" x-text="focused.name"></h2>
+            <p class="stream-title" x-text="focused.status.title || (focused.status.live ? 'Live' : 'Offline')"></p>
+          </div>
+          <button type="button" class="icon-btn" @click="select(null)" aria-label="Close the large view">&times;</button>
+        </div>
+        <dl class="readout">
+          <div><dt>Chat now</dt><dd><b x-text="fmtRate(latest[focused.name]?.rate)"></b><small>msg/s</small></dd></div>
+          <div><dt>Normal</dt><dd><b x-text="fmtRate(latest[focused.name]?.baseline)"></b><small>msg/s</small></dd></div>
+          <div><dt>Clips at</dt><dd><b x-text="fmtRate(latest[focused.name]?.threshold)"></b><small>msg/s</small></dd></div>
+          <div><dt>Chatters</dt><dd><b x-text="latest[focused.name]?.unique_chatters ?? '–'"></b><small>this second</small></dd></div>
+        </dl>
+        <div class="chart-wrap big">
+          <div class="chart" x-init="mountChart($el, 'focus', focused.name, 900)"></div>
+          <div class="chart-empty" x-show="!hasRates(focused.name)">No chat-rate data yet</div>
+        </div>
+        <div class="legend" aria-hidden="true">
+          <span class="lg rate">Chat rate</span><span class="lg base">Normal</span>
+          <span class="lg thr">Clip threshold</span><span class="lg peak">Peak</span>
+        </div>
+        <div class="focus-peaks">
+          <h3>Peaks in the last 15 minutes</h3>
+          <template x-if="recentPeaks(focused.name, 900).length === 0">
+            <p class="muted">None yet. Peaks show up here and as amber marks on the chart.</p>
+          </template>
+          <ol class="peak-list">
+            <template x-for="p in recentPeaks(focused.name, 900).slice(0, 6)" :key="p.id">
+              <li>
+                <span class="peak-time" x-text="fmtClock(p.ts_peak)"></span>
+                <span x-text="p.source === 'manual' ? 'Clipped by hand' : fmtScore(p.score) + ' normal'"></span>
+                <span class="muted" x-text="fmtAgo(p.ts_peak)"></span>
+              </li>
+            </template>
+          </ol>
+        </div>
+        <div class="focus-actions">
+          <button type="button" class="btn primary" data-testid="clip-now" :disabled="busy['clip:' + focused.name] || !focused.status.live"
+                  @click="clipNow(focused.name)" x-text="busy['clip:' + focused.name] ? 'Clipping…' : 'Clip now'"></button>
+          <span class="muted small" x-text="clipNowHint(focused)"></span>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <div class="streams" :class="arrange" x-show="streamers.length">
+    <template x-for="(s, i) in streamers" :key="s.name">
+      <article class="card stream-card" data-testid="stream-card" :data-name="s.name"
+               :class="{ selected: selected === s.name, disabled: !s.enabled }"
+               tabindex="0" @click="select(s.name)" @keydown.enter.self="select(s.name)">
+        <div class="monitor" :class="monitorClass(s)">
+          <template x-if="showLive(s) && selected !== s.name">
+            <video muted autoplay playsinline x-init="attachLive($el, s.name)"></video>
+          </template>
+          <template x-if="(!showLive(s) || selected === s.name) && snapUrl(s.name)">
+            <img :src="snapUrl(s.name)" :alt="'Latest frame from ' + s.name" loading="lazy">
+          </template>
+          <template x-if="(!showLive(s) || selected === s.name) && !snapUrl(s.name)">
+            <div class="no-picture"><p x-text="noPictureText(s)"></p></div>
+          </template>
+          <div class="tally" aria-hidden="true"></div>
+          <div class="overlay">
+            <span class="state-pill" x-text="stateText(s)"></span>
+            <span class="buffer-pill" x-show="bufferText(s)" x-text="bufferText(s)"></span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="card-head">
+            <h2 class="streamer-name" x-text="s.name"></h2>
+            <p class="now-rate"><b x-text="fmtRate(latest[s.name]?.rate)"></b><small>msg/s</small></p>
+          </div>
+          <p class="stream-title" x-text="s.enabled ? (s.status.title || (s.status.live ? 'Live' : 'Offline')) : 'Not watched (turned off in Settings)'"></p>
+          <div class="chart-wrap">
+            <div class="chart" x-init="mountChart($el, 'card:' + s.name, s.name, 300)"></div>
+            <div class="chart-empty" x-show="!hasRates(s.name)">No chat-rate data yet</div>
+          </div>
+          <div class="card-foot">
+            <span class="muted small" x-text="peakSummary(s.name)"></span>
+            <button type="button" class="btn small" data-testid="clip-now" :disabled="busy['clip:' + s.name] || !s.status.live"
+                    @click.stop="clipNow(s.name)" x-text="busy['clip:' + s.name] ? 'Clipping…' : 'Clip now'"></button>
+          </div>
+        </div>
+      </article>
+    </template>
+  </div>
+  <div class="legend under" x-show="streamers.length" aria-hidden="true">
+    <span class="lg rate">Chat rate</span><span class="lg base">Normal</span>
+    <span class="lg thr">Clip threshold</span><span class="lg peak">Peak</span>
+    <span class="muted">Last 5 minutes. Click a stream to see it large.</span>
+  </div>
+</section>
+
+<!-- ================================================================== CLIPS -->
+<section class="view" x-show="view === 'clips'" aria-label="Clips">
+  <div class="toolbar">
+    <h1>Clips</h1>
+    <div class="tabs" role="tablist">
+      <template x-for="t in clipTabs" :key="t.id">
+        <button type="button" role="tab" :aria-selected="clipTab === t.id" :class="{ on: clipTab === t.id }"
+                :data-testid="'tab-' + t.id" @click="clipTab = t.id">
+          <span x-text="t.label"></span><span class="count" x-text="tabCount(t.id)"></span>
+        </button>
+      </template>
+    </div>
+  </div>
+
+  <template x-if="clipTab === 'review' && inProgress().length">
+    <div class="in-progress">
+      <h3>Being made</h3>
+      <template x-for="c in inProgress()" :key="c.id">
+        <div class="progress-row" data-testid="clip-progress" :data-status="c.status">
+          <span class="streamer-name small" x-text="c.streamer"></span>
+          <ol class="steps">
+            <template x-for="st in ['waiting', 'cutting', 'rendering']" :key="st">
+              <li :class="stepClass(c.status, st)" x-text="stepLabel(st)"></li>
+            </template>
+          </ol>
+          <span class="muted small" x-text="'Window ' + fmtClock(c.window_start) + ' to ' + fmtClock(c.window_end)"></span>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <template x-if="tabClips().length === 0">
+    <div class="empty">
+      <p x-text="emptyClipsText()"></p>
+      <button type="button" class="btn" x-show="clipTab === 'review'" @click="go('streams')">Go to streams</button>
+    </div>
+  </template>
+
+  <div class="clip-list">
+    <template x-for="c in tabClips()" :key="c.id">
+      <article class="card clip" data-testid="clip-item" :data-status="c.status" :data-id="c.id">
+        <div class="clip-player">
+          <template x-if="hasRender(c) && !noPreview[c.id]">
+            <video controls preload="metadata" playsinline :src="videoUrl(c)"
+                   @error="noPreview[c.id] = true"></video>
+          </template>
+          <template x-if="!hasRender(c) || noPreview[c.id]">
+            <div class="no-preview">
+              <p><b>No preview</b></p>
+              <p x-text="hasRender(c) ? 'This file isn\'t playable video. In the demo without ffmpeg, clips are placeholder files.' : 'Nothing rendered yet.'"></p>
+            </div>
+          </template>
+        </div>
+        <div class="clip-main">
+          <div class="clip-head">
+            <h2 class="streamer-name" x-text="c.streamer"></h2>
+            <span class="status" :class="'st-' + c.status" x-text="statusLabel(c.status)"></span>
+            <span class="muted small" x-text="fmtAgo(c.created_at)"></span>
+          </div>
+          <div class="window">
+            <div class="window-bar" :title="windowTitle(c)">
+              <i class="peak-tick" x-show="peakFor(c)" :style="'left:' + peakPos(c) + '%'"></i>
+            </div>
+            <p class="small">
+              <span x-text="fmtClock(c.window_start) + ' to ' + fmtClock(c.window_end)"></span>
+              <span class="muted" x-text="'(' + Math.round(c.window_end - c.window_start) + ' s)'"></span>
+              <template x-if="peakFor(c)">
+                <span>, peak at <b x-text="fmtClock(peakFor(c).ts_peak)"></b>
+                  <span class="muted" x-text="peakFor(c).source === 'manual' ? '(clipped by hand)' : '(' + fmtScore(peakFor(c).score) + ' normal)'"></span></span>
+              </template>
+            </p>
+          </div>
+
+          <template x-if="c.error">
+            <div class="callout bad">
+              <p x-text="c.error"></p>
+              <a x-show="c.debug_screenshot" :href="'/api/clips/' + c.id + '/screenshot'" target="_blank" rel="noopener">Open the upload screenshot</a>
+            </div>
+          </template>
+          <template x-if="!c.error && c.debug_screenshot">
+            <p class="small"><a :href="'/api/clips/' + c.id + '/screenshot'" target="_blank" rel="noopener">Open the upload screenshot</a></p>
+          </template>
+
+          <label class="field caption">
+            <span class="field-label">Caption <small class="muted" x-text="(drafts[c.id] ?? c.caption).length + ' / 2200'"></small></span>
+            <textarea rows="2" maxlength="2200" :value="drafts[c.id] ?? c.caption" :disabled="!captionEditable(c)"
+                      @input="drafts[c.id] = $event.target.value" @blur="saveCaption(c)"
+                      @keydown.ctrl.enter="saveCaption(c)" @keydown.meta.enter="saveCaption(c)"></textarea>
+          </label>
+
+          <div class="clip-actions">
+            <div class="layout-pick" x-show="c.raw_path">
+              <div class="seg small" role="group" aria-label="Layout">
+                <template x-for="l in layouts" :key="l.id">
+                  <button type="button" :class="{ on: pickedLayout(c) === l.id, rendered: c.renders[l.id] }"
+                          :title="c.renders[l.id] ? 'Already rendered' : 'Not rendered yet'"
+                          :disabled="!rerenderable(c)" @click="layoutPick[c.id] = l.id" x-text="l.label"></button>
+                </template>
+              </div>
+              <button type="button" class="btn small" :disabled="!rerenderable(c) || busy['render:' + c.id] || pickedLayout(c) === c.active_layout"
+                      @click="rerender(c)" x-text="busy['render:' + c.id] ? 'Rendering…' : 'Re-render'"></button>
+            </div>
+            <div class="spacer"></div>
+            <button type="button" class="btn danger-quiet" x-show="canReject(c)" data-testid="reject"
+                    :disabled="!!busy['act:' + c.id]" @click="act(c, 'reject')">Reject</button>
+            <button type="button" class="btn primary" x-show="canApprove(c)" data-testid="approve"
+                    :disabled="!!busy['act:' + c.id]" @click="act(c, 'approve')" x-text="approveLabel(c)"></button>
+          </div>
+        </div>
+      </article>
+    </template>
+  </div>
+</section>
+
+<!-- ================================================================== DEBUG -->
+<section class="view" x-show="view === 'debug'" aria-label="Debug">
+  <div class="toolbar"><h1>Debug</h1></div>
+  <div class="debug-grid">
+    <div class="debug-main">
+    <div class="card panel log-panel">
+      <div class="panel-head">
+        <h2>Log</h2>
+        <div class="filters">
+          <select x-model="logLevel" aria-label="Lowest level shown">
+            <option value="debug">Debug and up</option>
+            <option value="info">Info and up</option>
+            <option value="warning">Warnings and errors</option>
+            <option value="error">Errors only</option>
+          </select>
+          <select x-model="logStreamer" aria-label="Streamer">
+            <option value="">All streamers</option>
+            <template x-for="s in streamers" :key="s.name"><option :value="s.name" x-text="s.name"></option></template>
+          </select>
+          <input type="search" placeholder="Search" x-model="logSearch" aria-label="Search the log">
+          <button type="button" class="btn small" @click="logPaused = !logPaused" x-text="logPaused ? 'Resume' : 'Pause'"></button>
+        </div>
+      </div>
+      <div class="log" x-ref="log" @scroll="onLogScroll($event)">
+        <template x-for="l in filteredLogs()" :key="l._k">
+          <div class="log-line" :class="'lv-' + l.level">
+            <time x-text="fmtClock(l.ts)"></time>
+            <span class="lv" x-text="l.level"></span>
+            <span class="src" x-text="l.source + (l.streamer ? ' / ' + l.streamer : '')"></span>
+            <span class="msg" x-text="l.message"></span>
+          </div>
+        </template>
+        <p class="muted log-empty" x-show="filteredLogs().length === 0">Nothing matches these filters.</p>
+      </div>
+      <p class="small muted log-foot" x-show="logPaused">Paused: <span x-text="logBacklog"></span> new lines are waiting.</p>
+    </div>
+
+      <div class="card panel peak-panel">
+        <div class="panel-head">
+          <h2>Peaks <small class="muted" x-text="'(' + peaks.length + ' in 24 h)'"></small></h2>
+          <select x-model="peakFilter" aria-label="Streamer">
+            <option value="">All streamers</option>
+            <template x-for="s in streamers" :key="s.name"><option :value="s.name" x-text="s.name"></option></template>
+          </select>
+        </div>
+        <div class="table-scroll">
+          <table class="peaks" data-testid="peak-log">
+            <thead><tr><th>Peak at</th><th>Streamer</th><th>Score</th><th>Chat rose</th><th>Length</th><th>Clip</th></tr></thead>
+            <tbody>
+              <template x-for="p in peakLog()" :key="p.id">
+                <tr>
+                  <td><b x-text="fmtClock(p.ts_peak)"></b> <span class="muted small" x-text="fmtAgo(p.ts_peak)"></span></td>
+                  <td x-text="p.streamer"></td>
+                  <td x-text="p.source === 'manual' ? 'by hand' : fmtScore(p.score)"></td>
+                  <td x-text="fmtClock(p.ts_start)"></td>
+                  <td x-text="fmtDur(p.ts_end - p.ts_start)"></td>
+                  <td>
+                    <template x-if="clipForPeak(p)">
+                      <button type="button" class="link small" @click="openClip(clipForPeak(p))" x-text="statusLabel(clipForPeak(p).status)"></button>
+                    </template>
+                    <span class="muted small" x-show="!clipForPeak(p)">none</span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <p class="muted small empty-row" x-show="peakLog().length === 0">No peaks yet. They appear here when chat spikes or someone presses Clip now.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="debug-side">
+      <div class="card panel">
+        <div class="panel-head">
+          <h2>Detection</h2>
+          <select x-model="detScope" aria-label="Apply to">
+            <option value="">All streamers</option>
+            <template x-for="s in streamers" :key="s.name"><option :value="s.name" x-text="s.name"></option></template>
+          </select>
+        </div>
+        <p class="small muted" x-text="detScope ? 'Changes here apply to ' + detScope + ' only. Marked settings differ from the defaults.' : 'Defaults for every streamer. Changes apply as you move a slider and are saved to the config.'"></p>
+        <div class="sliders" x-show="config">
+          <template x-for="f in detFields" :key="f.key">
+            <div class="slider" :class="{ override: detScope && isOverride(f.key) }">
+              <label :for="'det-' + f.key" x-text="f.label"></label>
+              <output x-text="fmtNum(detValue(f.key), f.step) + (f.unit ? ' ' + f.unit : '')"></output>
+              <input type="range" :id="'det-' + f.key" :min="f.min" :max="f.max" :step="f.step"
+                     :value="detValue(f.key)" @input="setDet(f.key, +$event.target.value)">
+              <button type="button" class="link small" x-show="detScope && isOverride(f.key)"
+                      @click="clearOverride(f.key)">Use default</button>
+              <p class="help" x-text="f.help"></p>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="card panel">
+        <div class="panel-head">
+          <h2>Layout</h2>
+          <select x-model="lay.streamer" @change="loadLayoutForm()" aria-label="Streamer">
+            <template x-for="s in streamers" :key="s.name"><option :value="s.name" x-text="s.name"></option></template>
+          </select>
+        </div>
+        <template x-if="lay.streamer">
+          <div class="layout-tool">
+            <div class="seg" role="group" aria-label="Layout">
+              <template x-for="l in layouts" :key="l.id">
+                <button type="button" :class="{ on: lay.layout === l.id }" @click="lay.layout = l.id; layoutChanged()" x-text="l.label"></button>
+              </template>
+            </div>
+            <div class="layout-body">
+              <div class="layout-preview">
+                <template x-if="previewUrl">
+                  <img :src="previewUrl" alt="The snapshot with the layout's regions drawn on it" @error="previewFailed = true" @load="previewFailed = false">
+                </template>
+                <p class="muted small" x-show="!previewUrl" x-text="'Waiting for a picture from ' + lay.streamer + '.'"></p>
+                <p class="muted small" x-show="previewFailed">The preview couldn't be made.</p>
+              </div>
+              <div class="layout-controls">
+                <p class="small muted" x-text="layoutHelp()"></p>
+                <template x-if="lay.layout === 'crop'">
+                  <div class="slider">
+                    <label>Crop position</label><output x-text="fmtNum(lay.crop_x, 0.01)"></output>
+                    <input type="range" min="0" max="1" step="0.01" :value="lay.crop_x" @input="lay.crop_x = +$event.target.value; layoutChanged()">
+                    <p class="help">0 keeps the left edge, 1 the right.</p>
+                  </div>
+                </template>
+                <template x-if="lay.layout === 'blur_fit'">
+                  <div class="slider">
+                    <label>Zoom</label><output x-text="fmtNum(lay.fit_zoom, 0.01) + '×'"></output>
+                    <input type="range" min="1" max="2" step="0.01" :value="lay.fit_zoom" @input="lay.fit_zoom = +$event.target.value; layoutChanged()">
+                    <p class="help">Above 1 enlarges the picture and trims the sides.</p>
+                  </div>
+                </template>
+                <template x-if="lay.layout === 'stacked'">
+                  <div class="regions">
+                    <template x-for="r in [{ id: 'stack_top', label: 'Top region (yellow)' }, { id: 'stack_bottom', label: 'Bottom region (cyan)' }]" :key="r.id">
+                      <fieldset>
+                        <legend x-text="r.label"></legend>
+                        <template x-for="k in ['x', 'y', 'w', 'h']" :key="k">
+                          <div class="mini-slider">
+                            <label x-text="{ x: 'Left', y: 'Top', w: 'Width', h: 'Height' }[k]"></label>
+                            <input type="range" min="0" max="1" step="0.01" :value="lay[r.id][k]"
+                                   @input="lay[r.id][k] = +$event.target.value; layoutChanged()">
+                            <output x-text="fmtNum(lay[r.id][k], 0.01)"></output>
+                          </div>
+                        </template>
+                      </fieldset>
+                    </template>
+                    <div class="slider">
+                      <label>Top region's share of the height</label><output x-text="Math.round(lay.stack_split * 100) + '%'"></output>
+                      <input type="range" min="0.1" max="0.9" step="0.01" :value="lay.stack_split" @input="lay.stack_split = +$event.target.value; layoutChanged()">
+                    </div>
+                  </div>
+                </template>
+                <div class="row-actions">
+                  <button type="button" class="btn" :disabled="!lay.dirty" @click="loadLayoutForm()">Discard changes</button>
+                  <button type="button" class="btn primary" :disabled="!lay.dirty || busy.layout" @click="saveLayout()"
+                          x-text="busy.layout ? 'Saving…' : 'Save for ' + lay.streamer"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+
+      <div class="card panel">
+        <div class="panel-head"><h2>Video sync</h2></div>
+        <div class="slider" x-show="config">
+          <label for="sync-offset">Chat-to-video offset</label>
+          <output x-text="config ? (config.capture.sync_offset_s > 0 ? '+' : '') + fmtNum(config.capture.sync_offset_s, 0.1) + ' s' : ''"></output>
+          <input type="range" id="sync-offset" min="-15" max="15" step="0.1" data-testid="sync-offset"
+                 :value="config?.capture.sync_offset_s ?? 0" @input="setSyncOffset(+$event.target.value)">
+          <p class="help">Shifts where clips are taken from the video. Positive values cut later in the buffer, negative earlier. If the action in your clips comes too late or too early compared with the peak tick on each clip's window bar, adjust this.</p>
+        </div>
+      </div>
+
+      <div class="card panel">
+        <div class="panel-head"><h2>Uploads</h2></div>
+        <label class="switch row" :class="{ on: config?.tiktok.dry_run }">
+          <input type="checkbox" role="switch" data-testid="dry-run" :checked="config?.tiktok.dry_run" :disabled="!config"
+                 @change="patchConfig({ tiktok: { dry_run: $event.target.checked } }, $event.target.checked ? 'Dry run is on' : 'Dry run is off: uploads will post')">
+          <span class="track" aria-hidden="true"></span>
+          <span class="switch-label"><b>Dry run</b> <span class="muted">The uploader fills in TikTok's form and stops before Post, then saves a screenshot.</span></span>
+        </label>
+      </div>
+
+      <div class="card panel">
+        <div class="panel-head"><h2>Health</h2></div>
+        <table class="health">
+          <thead><tr><th>Streamer</th><th>Stream</th><th>Recorder</th><th>Buffer</th></tr></thead>
+          <tbody>
+            <template x-for="s in streamers" :key="s.name">
+              <tr>
+                <td><span class="dot" :class="healthDot(s)"></span><span x-text="s.name"></span></td>
+                <td x-text="s.status.live ? 'Live' : 'Offline'"></td>
+                <td>
+                  <span x-text="recorderLabel(s.status.recorder_state)"></span>
+                  <span class="bad-text small" x-show="s.status.last_error" x-text="s.status.last_error"></span>
+                </td>
+                <td x-text="bufferText(s) || '–'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <h3>Parts</h3>
+        <ul class="parts">
+          <template x-for="[name, kind] in Object.entries(components)" :key="name">
+            <li><span x-text="partLabel(name)"></span><span class="tag" :class="kind" x-text="kind === 'real' ? 'Real' : 'Stand-in'"></span></li>
+          </template>
+          <li><span>Live updates</span><span class="tag" :class="connState === 'open' ? 'real' : 'bad'" x-text="connState === 'open' ? 'Connected' : 'Disconnected'"></span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================== SETTINGS -->
+<section class="view" x-show="view === 'settings'" aria-label="Settings">
+  <div class="toolbar"><h1>Settings</h1></div>
+  <div class="settings-grid">
+    <div class="card panel auto-panel" :class="{ on: autoUpload }">
+      <label class="switch big">
+        <input type="checkbox" role="switch" data-testid="auto-upload-big" :checked="autoUpload" :disabled="!config"
+               @change="setAutoUpload($event.target.checked)">
+        <span class="track" aria-hidden="true"></span>
+        <span class="switch-label">
+          <b>Auto-upload is <span x-text="autoUpload ? 'on' : 'off'"></span></b>
+          <span x-text="autoUpload ? 'Finished clips go straight to the upload queue.' : 'Finished clips wait in To review until you approve them.'"></span>
+          <span class="muted small" x-show="config?.tiktok.dry_run">Dry run is on, so nothing is posted either way.</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="card panel">
+      <div class="panel-head"><h2>Streamers</h2></div>
+      <ul class="streamer-rows">
+        <template x-for="s in config?.streamers || []" :key="s.name">
+          <li>
+            <label class="switch" :class="{ on: s.enabled }" :title="s.enabled ? 'Watched' : 'Not watched'">
+              <input type="checkbox" role="switch" :checked="s.enabled" :aria-label="'Watch ' + s.name"
+                     @change="setStreamerEnabled(s.name, $event.target.checked)">
+              <span class="track" aria-hidden="true"></span>
+            </label>
+            <span class="streamer-name small" x-text="s.name"></span>
+            <span class="muted small" x-text="streamerSummary(s)"></span>
+            <div class="spacer"></div>
+            <template x-if="confirmRemove !== s.name">
+              <button type="button" class="btn small danger-quiet" @click="confirmRemove = s.name">Remove</button>
+            </template>
+            <template x-if="confirmRemove === s.name">
+              <span class="confirm">
+                <button type="button" class="btn small" @click="confirmRemove = null">Keep</button>
+                <button type="button" class="btn small danger" @click="removeStreamer(s.name)">Remove <span x-text="s.name"></span></button>
+              </span>
+            </template>
+          </li>
+        </template>
+      </ul>
+      <form class="add-row" @submit.prevent="addStreamer()">
+        <input type="text" placeholder="Twitch channel name" x-model.trim="newStreamer" aria-label="Twitch channel name"
+               autocomplete="off" spellcheck="false">
+        <button type="submit" class="btn" :disabled="!newStreamer">Add streamer</button>
+      </form>
+      <p class="small bad-text" x-show="addError" x-text="addError"></p>
+    </div>
+
+    <div class="card panel">
+      <div class="panel-head"><h2>Upload limits</h2></div>
+      <form class="limits" @submit.prevent="saveLimits()">
+        <label class="field">
+          <span class="field-label">Uploads per day, at most</span>
+          <input type="number" min="0" max="100" step="1" x-model.number="limits.max_uploads_per_day" @input="limits.dirty = true">
+        </label>
+        <label class="field">
+          <span class="field-label">Minutes between uploads, at least</span>
+          <input type="number" min="0" max="1440" step="1" x-model.number="limits.min_minutes_between_uploads" @input="limits.dirty = true">
+        </label>
+        <label class="field wide">
+          <span class="field-label">Caption for new clips <small class="muted">{streamer} becomes the channel name</small></span>
+          <input type="text" x-model="limits.caption_template" @input="limits.dirty = true">
+        </label>
+        <div class="row-actions">
+          <button type="button" class="btn" :disabled="!limits.dirty" @click="loadLimits()">Discard changes</button>
+          <button type="submit" class="btn primary" :disabled="!limits.dirty">Save limits</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card panel">
+      <div class="panel-head"><h2>Appearance</h2></div>
+      <div class="seg" role="group" aria-label="Colour scheme">
+        <template x-for="t in [{ id: 'system', label: 'Match system' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }]" :key="t.id">
+          <button type="button" :class="{ on: theme === t.id }" @click="setTheme(t.id)" x-text="t.label"></button>
+        </template>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="toasts" aria-live="polite">
+  <template x-for="t in toasts" :key="t.id">
+    <div class="toast" :class="t.kind" x-text="t.text"></div>
+  </template>
+</div>
+
+</body>
+</html>
