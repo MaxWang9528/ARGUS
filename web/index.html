@@ -62,7 +62,7 @@
     <h1>Streams</h1>
     <p class="sub" x-text="liveSummary()"></p>
     <div class="spacer"></div>
-    <p class="hint" x-show="streamers.length > 1">Arrow keys switch streamer, Esc closes</p>
+    <p class="hint" x-show="recorded.length > 1">Arrow keys switch streamer, Esc closes</p>
     <div class="seg" role="group" aria-label="Arrangement">
       <button type="button" :class="{ on: arrange === 'strip' }" @click="setArrange('strip')">Strip</button>
       <button type="button" :class="{ on: arrange === 'grid' }" @click="setArrange('grid')">Grid</button>
@@ -92,6 +92,7 @@
         <div class="tally" aria-hidden="true"></div>
         <div class="overlay">
           <span class="state-pill" x-text="stateText(focused)"></span>
+          <span class="viewer-pill" x-show="focused.status.live && focused.status.viewers != null" x-text="viewersText(focused)"></span>
           <span class="buffer-pill" x-show="bufferText(focused)" x-text="bufferText(focused)"></span>
         </div>
       </div>
@@ -133,7 +134,7 @@
           </ol>
         </div>
         <div class="focus-actions">
-          <button type="button" class="btn primary" data-testid="clip-now" :disabled="busy['clip:' + focused.name] || !focused.status.live"
+          <button type="button" class="btn primary" data-testid="clip-now" :disabled="busy['clip:' + focused.name] || !focused.status.live || focused.status.watched === false"
                   @click="clipNow(focused.name)" x-text="busy['clip:' + focused.name] ? 'Clipping…' : 'Clip now'"></button>
           <span class="muted small" x-text="clipNowHint(focused)"></span>
         </div>
@@ -141,8 +142,14 @@
     </article>
   </template>
 
-  <div class="streams" :class="arrange" x-show="streamers.length">
-    <template x-for="(s, i) in streamers" :key="s.name">
+  <template x-if="loaded && streamers.length && !recorded.length">
+    <div class="empty small-empty">
+      <p x-text="unwatched.length ? 'Nobody is being recorded right now.' : 'Nobody is live right now. Cards appear here when a streamer goes live.'"></p>
+    </div>
+  </template>
+
+  <div class="streams" :class="arrange" x-show="recorded.length">
+    <template x-for="s in recorded" :key="s.name">
       <article class="card stream-card" data-testid="stream-card" :data-name="s.name"
                :class="{ selected: selected === s.name, disabled: !s.enabled }"
                tabindex="0" @click="select(s.name)" @keydown.enter.self="select(s.name)">
@@ -159,6 +166,7 @@
           <div class="tally" aria-hidden="true"></div>
           <div class="overlay">
             <span class="state-pill" x-text="stateText(s)"></span>
+            <span class="viewer-pill" data-testid="viewers" x-show="s.status.viewers != null" x-text="viewersText(s)"></span>
             <span class="buffer-pill" x-show="bufferText(s)" x-text="bufferText(s)"></span>
           </div>
         </div>
@@ -181,11 +189,54 @@
       </article>
     </template>
   </div>
-  <div class="legend under" x-show="streamers.length" aria-hidden="true">
+  <div class="legend under" x-show="recorded.length" aria-hidden="true">
     <span class="lg rate">Chat rate</span><span class="lg base">Normal</span>
     <span class="lg thr">Clip threshold</span><span class="lg peak">Peak</span>
     <span class="muted">Last 5 minutes. Click a stream to see it large.</span>
   </div>
+
+  <!-- live but outside max_streamers: chat is read, nothing is recorded -->
+  <template x-if="unwatched.length">
+    <details class="card stream-group" data-testid="group-unwatched" :open="groupsOpen.unwatched" @toggle="groupsOpen.unwatched = $el.open">
+      <summary>
+        <span class="group-title" x-text="'Live, not recorded (' + unwatched.length + ')'"></span>
+        <span class="muted small" x-text="config?.general.max_streamers ? 'Over the limit of ' + config.general.max_streamers + ' recorded at once (Settings). Their chat is still read, but they aren\'t clipped.' : 'Their chat is still read, but they aren\'t clipped.'"></span>
+      </summary>
+      <template x-if="groupsOpen.unwatched">
+        <ul class="stream-rows">
+          <template x-for="s in unwatched" :key="s.name">
+            <li data-testid="unwatched-row" :data-name="s.name" :class="{ selected: selected === s.name }" tabindex="0"
+                @click="select(s.name)" @keydown.enter.self="select(s.name)">
+              <span class="dot warn" aria-hidden="true"></span>
+              <span class="row-name" x-text="s.name"></span>
+              <span class="category" x-show="s.status.category" x-text="s.status.category"></span>
+              <span class="row-title muted" x-text="s.status.title"></span>
+              <span class="row-viewers" data-testid="viewers" x-text="viewersText(s)"></span>
+            </li>
+          </template>
+        </ul>
+      </template>
+    </details>
+  </template>
+
+  <template x-if="offline.length">
+    <details class="card stream-group" data-testid="group-offline" :open="groupsOpen.offline" @toggle="groupsOpen.offline = $el.open">
+      <summary><span class="group-title" x-text="'Offline (' + offline.length + ')'"></span></summary>
+      <template x-if="groupsOpen.offline">
+        <ul class="stream-rows">
+          <template x-for="s in offline" :key="s.name">
+            <li data-testid="offline-row" :data-name="s.name" :class="{ selected: selected === s.name, disabled: !s.enabled }" tabindex="0"
+                @click="select(s.name)" @keydown.enter.self="select(s.name)">
+              <span class="dot" :class="healthDot(s)" aria-hidden="true"></span>
+              <span class="row-name" x-text="s.name"></span>
+              <span class="category" x-show="s.status.category" x-text="s.status.category"></span>
+              <span class="row-title muted" x-text="offlineNote(s)"></span>
+            </li>
+          </template>
+        </ul>
+      </template>
+    </details>
+  </template>
 </section>
 
 <!-- ================================================================== CLIPS -->
@@ -219,6 +270,20 @@
     </div>
   </template>
 
+  <template x-if="clipTab === 'queued'">
+    <div class="queue-note" data-testid="queue-note">
+      <p class="queue-state" x-show="upload" data-testid="queue-state">
+        <b x-text="uploadSummary()"></b>
+        <span class="bad-text" x-show="upload?.paused_reason" x-text="'Paused: ' + upload?.paused_reason"></span>
+        <span class="warn-text" x-show="!upload?.paused_reason && upload?.waiting_reason" data-testid="waiting-reason" x-text="'Waiting: ' + upload?.waiting_reason"></span>
+      </p>
+      <p class="muted small">
+        Uploads in this order: clips made by hand first, then the highest chat-to-normal ratio, then the oldest.
+        When there are more clips than upload slots, the biggest chat spikes go first<span x-show="config?.tiktok.max_queue_age_h > 0" x-text="', and a clip that waits longer than ' + config?.tiktok.max_queue_age_h + ' h is dropped'"></span>.
+      </p>
+    </div>
+  </template>
+
   <template x-if="tabClips().length === 0">
     <div class="empty">
       <p x-text="emptyClipsText()"></p>
@@ -232,6 +297,8 @@
         <div class="clip-head">
           <h2 class="streamer-name" x-text="c.streamer"></h2>
           <span class="status" :class="'st-' + c.status" x-text="statusLabel(c.status)"></span>
+          <span class="score" data-testid="clip-score" :class="{ manual: isManual(c) }" x-show="scoreText(c)" :title="scoreTitle(c)" x-text="scoreText(c)"></span>
+          <span class="clip-account small" data-testid="clip-account" x-show="showAccount(c)" x-text="accountText(c)"></span>
           <span class="muted small" x-text="fmtAgo(c.created_at)"></span>
         </div>
         <div class="clip-player" data-testid="clip-player">
@@ -311,6 +378,134 @@
         </div>
       </article>
     </template>
+  </div>
+</section>
+
+<!-- =============================================================== ACCOUNTS -->
+<section class="view" x-show="view === 'accounts'" aria-label="Accounts">
+  <div class="toolbar">
+    <h1>Accounts</h1>
+    <p class="sub" x-show="upload" x-text="uploadSummary()"></p>
+    <div class="spacer"></div>
+    <label class="switch cycle-switch" :class="{ on: config?.tiktok.cycle_accounts }">
+      <input type="checkbox" role="switch" data-testid="cycle" :checked="!!config?.tiktok.cycle_accounts" :disabled="!config"
+             @change="setCycle($event.target.checked)">
+      <span class="track" aria-hidden="true"></span>
+      <span class="switch-label"><b>Cycle: post to each account in turn</b>
+        <span class="muted small" x-text="config?.tiktok.cycle_accounts ? 'Each upload goes to the next account with a free slot.' : 'Off: every upload goes to the first account in the list with a free slot.'"></span></span>
+    </label>
+  </div>
+
+  <p class="quiet-note" data-testid="accounts-missing" x-show="accountsApi === 'missing'">
+    Accounts API not available: this livewatcher can't report logins or upload slots yet. The list below still edits the config.
+  </p>
+
+  <template x-if="upload && (upload.paused_reason || upload.waiting_reason)">
+    <div class="queue-note" data-testid="upload-reason">
+      <p class="bad-text" x-show="upload.paused_reason" x-text="'Uploads paused: ' + upload.paused_reason"></p>
+      <p class="warn-text" x-show="!upload.paused_reason && upload.waiting_reason" x-text="'Waiting: ' + upload.waiting_reason"></p>
+    </div>
+  </template>
+
+  <template x-if="implicitAccount">
+    <p class="muted small" data-testid="implicit-note">
+      No accounts are listed, so uploads use one built-in account, <b>default</b>, with the browser profile and limits from the
+      <code>[tiktok]</code> settings. Adding an account replaces it.
+    </p>
+  </template>
+
+  <div class="account-list">
+    <template x-for="row in accountRows()" :key="row.name">
+      <article class="card account" data-testid="account" :data-name="row.name" :class="{ disabled: !row.enabled }"
+               x-data="{ f: { max_uploads_per_day: row.max_uploads_per_day, min_minutes_between_uploads: row.min_minutes_between_uploads, dirty: false } }"
+               x-effect="if (!f.dirty) { f.max_uploads_per_day = row.max_uploads_per_day; f.min_minutes_between_uploads = row.min_minutes_between_uploads; }">
+        <div class="account-head">
+          <label class="switch" :class="{ on: row.enabled }" x-show="!implicitAccount" :title="row.enabled ? 'Posted to' : 'Not posted to'">
+            <input type="checkbox" role="switch" data-testid="account-enabled" :checked="row.enabled" :aria-label="'Post to ' + row.name"
+                   @change="setAccountEnabled(row.name, $event.target.checked)">
+            <span class="track" aria-hidden="true"></span>
+          </label>
+          <h2 class="streamer-name" x-text="row.name"></h2>
+          <span class="tag" x-show="implicitAccount">built in</span>
+          <span class="tag" x-show="upload?.next_account === row.name">next upload</span>
+          <span class="login-state" data-testid="login-state" :class="loginClass(row)" x-show="row.live" x-text="loginText(row)"></span>
+          <div class="spacer"></div>
+          <div class="account-actions">
+            <button type="button" class="btn small" data-testid="login" :disabled="!row.live || row.live.login_open || !!busy['login:' + row.name]"
+                    @click="login(row.name)" x-text="busy['login:' + row.name] ? 'Opening…' : 'Log in'"></button>
+            <button type="button" class="btn small" data-testid="check" :disabled="!row.live || row.live.login_open || !!busy['check:' + row.name]"
+                    @click="checkLogin(row.name)" x-text="busy['check:' + row.name] ? 'Checking…' : 'Check'"></button>
+          </div>
+        </div>
+
+        <dl class="account-stats" x-show="row.live">
+          <div><dt>Uploads, last 24 h</dt><dd data-testid="uploads-24h"><b x-text="row.live?.uploads_24h ?? '–'"></b> <span class="muted" x-text="'of ' + (row.live?.max_uploads_per_day ?? row.max_uploads_per_day)"></span></dd></div>
+          <div><dt>Next slot</dt><dd data-testid="next-slot" x-text="slotText(row)"></dd></div>
+          <div><dt>Last upload</dt><dd x-text="row.live?.last_upload_ts ? fmtAgo(row.live.last_upload_ts) : 'never'"></dd></div>
+        </dl>
+
+        <form class="account-limits" @submit.prevent="saveAccountLimits(row, f)">
+          <label class="field">
+            <span class="field-label">Uploads per day, at most</span>
+            <input type="number" min="0" max="100" step="1" data-testid="acct-max" x-model.number="f.max_uploads_per_day" @input="f.dirty = true">
+          </label>
+          <label class="field">
+            <span class="field-label">Minutes between uploads, at least</span>
+            <input type="number" min="0" max="1440" step="1" data-testid="acct-gap" x-model.number="f.min_minutes_between_uploads" @input="f.dirty = true">
+          </label>
+          <div class="row-actions">
+            <button type="submit" class="btn small primary" data-testid="acct-save" :disabled="!f.dirty">Save limits</button>
+          </div>
+        </form>
+
+        <div class="account-foot">
+          <span class="muted small path" :title="row.live?.profile_dir || row.browser_profile_dir"
+                x-text="'Profile: ' + (row.live?.profile_dir || row.browser_profile_dir || 'accounts/' + row.name + '/browser_profile in the data folder')"></span>
+          <div class="spacer"></div>
+          <template x-if="!implicitAccount && confirmDelete !== row.name">
+            <button type="button" class="btn small danger-quiet" data-testid="delete" @click="confirmDelete = row.name">Remove</button>
+          </template>
+          <template x-if="!implicitAccount && confirmDelete === row.name">
+            <span class="confirm-box">
+              <span class="small">Remove <b x-text="row.name"></b>? Its profile folder stays on disk, so adding it again keeps the login.</span>
+              <button type="button" class="btn small" @click="confirmDelete = null">Keep</button>
+              <button type="button" class="btn small danger" data-testid="confirm-delete" @click="deleteAccount(row.name)">Remove</button>
+            </span>
+          </template>
+        </div>
+      </article>
+    </template>
+  </div>
+
+  <div class="card panel add-account">
+    <div class="panel-head"><h2>Add an account</h2></div>
+    <p class="small muted" x-show="implicitAccount">
+      The first account you add replaces <b>default</b>. To keep its login, set the new account's profile folder to
+      <button type="button" class="link small" @click="newAcct.browser_profile_dir = config.tiktok.browser_profile_dir" x-text="config?.tiktok.browser_profile_dir"></button>.
+    </p>
+    <form class="account-form" @submit.prevent="addAccount()">
+      <label class="field">
+        <span class="field-label">Name <small class="muted">also the profile folder's name</small></span>
+        <input type="text" data-testid="acct-name" x-model="newAcct.name" placeholder="e.g. clips_main" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span class="field-label">Uploads per day, at most</span>
+        <input type="number" min="0" max="100" step="1" data-testid="acct-new-max" x-model.number="newAcct.max_uploads_per_day">
+      </label>
+      <label class="field">
+        <span class="field-label">Minutes between uploads, at least</span>
+        <input type="number" min="0" max="1440" step="1" data-testid="acct-new-gap" x-model.number="newAcct.min_minutes_between_uploads">
+      </label>
+      <label class="field wide">
+        <span class="field-label">Profile folder <small class="muted">optional</small></span>
+        <input type="text" x-model="newAcct.browser_profile_dir" autocomplete="off" spellcheck="false"
+               :placeholder="'Blank: accounts/' + (newAcct.name || '<name>') + '/browser_profile in the data folder'">
+      </label>
+      <div class="row-actions">
+        <button type="submit" class="btn primary" data-testid="acct-add" :disabled="!newAcct.name.trim() || !config">Add account</button>
+      </div>
+    </form>
+    <p class="small bad-text" x-show="acctError" x-text="acctError"></p>
   </div>
 </section>
 
@@ -562,6 +757,14 @@
 
     <div class="card panel">
       <div class="panel-head"><h2>Streamers</h2></div>
+      <form class="max-streamers" @submit.prevent="saveMaxStreamers()">
+        <label class="field">
+          <span class="field-label">Max streamers recorded</span>
+          <input type="number" min="0" max="500" step="1" data-testid="max-streamers" x-model.number="maxStreamers"
+                 :disabled="!config" @change="saveMaxStreamers()">
+        </label>
+        <p class="help">0 = no limit; recording costs about 80 MB RAM each. Past the limit, streamers in your clip categories and then the most watched are recorded; the rest only have their chat read.</p>
+      </form>
       <ul class="streamer-rows">
         <template x-for="s in config?.streamers || []" :key="s.name">
           <li>
@@ -595,6 +798,7 @@
 
     <div class="card panel">
       <div class="panel-head"><h2>Upload limits</h2></div>
+      <p class="small muted" x-show="config && (config.tiktok.accounts || []).length">The two limits below apply only to the built-in default account. Each listed account has its own on the <button type="button" class="link small" @click="go('accounts')">Accounts</button> page.</p>
       <form class="limits" @submit.prevent="saveLimits()">
         <label class="field">
           <span class="field-label">Uploads per day, at most</span>
@@ -603,6 +807,11 @@
         <label class="field">
           <span class="field-label">Minutes between uploads, at least</span>
           <input type="number" min="0" max="1440" step="1" x-model.number="limits.min_minutes_between_uploads" @input="limits.dirty = true">
+        </label>
+        <label class="field wide">
+          <span class="field-label">Drop a queued clip after, hours <small class="muted">0 = never</small></span>
+          <input type="number" min="0" max="168" step="0.5" data-testid="max-queue-age" x-model.number="limits.max_queue_age_h" @input="limits.dirty = true">
+          <span class="help">A clip that finds no free upload slot within this time is dropped, so the queue doesn't post stale moments.</span>
         </label>
         <label class="field wide">
           <span class="field-label">Caption for new clips <small class="muted">{streamer} becomes the channel name</small></span>
