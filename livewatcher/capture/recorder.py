@@ -90,6 +90,7 @@ class _Stream:
     snap: Snapshotter
     live: bool = False
     title: str = ""
+    category: str = ""
     state: str = "stopped"
     last_error: str = ""
     proc: asyncio.subprocess.Process | None = None
@@ -143,7 +144,7 @@ class Recorder:
         off = self.store.get().capture.sync_offset_s
         start, end = st.index.start, st.index.end
         return StreamStatus(
-            streamer=name, live=st.live or st.state == "recording", title=st.title,
+            streamer=name, live=st.live or st.state == "recording", title=st.title, category=st.category,
             recorder_state=st.state,  # type: ignore[arg-type]
             buffer_start=None if start is None else start - off,
             buffer_end=None if end is None else end - off,
@@ -263,7 +264,7 @@ class Recorder:
             if name not in enabled:
                 if st.proc is not None:
                     await self._stop(st, "disabled")
-                st.live, st.title = False, ""
+                st.live, st.title, st.category = False, "", ""
                 if st.state != "stopped":
                     st.state = "stopped"
                 self._publish(st)
@@ -288,6 +289,10 @@ class Recorder:
             st.live = info.live
             if info.title:
                 st.title = info.title
+            if info.category != st.category and (info.category or not info.live):
+                if info.live:
+                    log.info("%s is playing %s", name, info.category, extra={"streamer": name})
+                st.category = info.category
             if not info.live and st.proc is None and st.state in ("error", "starting"):
                 st.state = "stopped"
             self._publish(st)
@@ -467,7 +472,7 @@ class Recorder:
 
     def _publish(self, st: _Stream, *, force: bool = False) -> None:
         status = self.status(st.name)
-        key = (status.live, status.recorder_state, status.title, status.last_error)
+        key = (status.live, status.recorder_state, status.title, status.category, status.last_error)
         rng = (status.buffer_start, status.buffer_end)
         now = time.time()
         if (force or key != st.last_pub_key or now - st.last_pub >= STATUS_EVERY_S

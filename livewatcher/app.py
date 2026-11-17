@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import logging
 import shutil
 import time
@@ -109,6 +110,11 @@ class ClipService:
         if not status.live:
             log.info("peak ignored: streamer is offline", extra={"streamer": peak.streamer})
             return None
+        wanted = {c.strip().lower() for c in cfg.general.clip_categories if c.strip()}
+        if wanted and peak.source == "auto" and status.category.strip().lower() not in wanted:
+            log.info("peak ignored: playing %s, not %s", status.category or "an unknown category",
+                     " / ".join(cfg.general.clip_categories), extra={"streamer": peak.streamer})
+            return None
         start = peak.ts_start - det.preroll_s
         end = min(peak.ts_end + det.postroll_s, start + det.max_clip_s)
         if status.buffer_start is not None and start < status.buffer_start - 1.0 and peak.source == "auto":
@@ -139,6 +145,7 @@ class ClipService:
             clip.status = ClipStatus.QUEUED if auto else ClipStatus.PENDING_REVIEW
             self._save(clip)
             log.info("clip %s ready (%s)", clip.id, clip.status.value, extra={"streamer": clip.streamer})
+            app.save_clip_rates(clip)
         except WindowUnavailable as exc:
             clip.status, clip.error = ClipStatus.DROPPED, str(exc)
             self._save(clip)
@@ -251,6 +258,39 @@ class App:
         return fake(**kwargs)
 
     # ---- data the dashboard reads -------------------------------------------
+    # ---- chat rate for one clip (the dashboard replays it with the video) ----
+    CLIP_RATES_PAD_S = 5.0
+
+    def _clip_rates_path(self, clip_id: str) -> Path:
+        return self.store.get().data_dir / "clips" / "rates" / f"{clip_id}.json"
+
+    def _window_rates(self, clip: Clip) -> list[RateSample]:
+        lo, hi = clip.window_start - self.CLIP_RATES_PAD_S, clip.window_end + self.CLIP_RATES_PAD_S
+        return [r for r in self.rate_history(clip.streamer) if lo <= r.ts <= hi]
+
+    def save_clip_rates(self, clip: Clip) -> None:
+        """Keep the clip window's rate samples: the in-memory history only covers 15 min."""
+        rates = self._window_rates(clip)
+        if not rates:
+            return
+        path = self._clip_rates_path(clip.id)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("[" + ",".join(r.model_dump_json() for r in rates) + "]", encoding="utf-8")
+        except OSError as exc:
+            log.warning("could not save chat rates for clip %s: %s", clip.id, exc)
+
+    def clip_rates(self, clip: Clip) -> list[RateSample]:
+        """Rate samples covering the clip window (padded 5 s each side), oldest first."""
+        path = self._clip_rates_path(clip.id)
+        try:
+            return [RateSample.model_validate(r) for r in json.loads(path.read_text(encoding="utf-8"))]
+        except FileNotFoundError:
+            return self._window_rates(clip)
+        except (OSError, ValueError) as exc:
+            log.warning("bad chat rate file for clip %s: %s", clip.id, exc)
+            return self._window_rates(clip)
+
     def rate_history(self, streamer: str) -> list[RateSample]:
         """Up to the last 15 minutes of rate samples."""
         return list(self._rates.get(streamer.lower(), ()))
@@ -327,7 +367,8 @@ class App:
                 break
             if clip.status in self._BUSY or not (clip.raw_path or clip.renders or clip.debug_screenshot):
                 continue
-            for path in (clip.raw_path, *clip.renders.values(), clip.debug_screenshot):
+            for path in (clip.raw_path, *clip.renders.values(), clip.debug_screenshot,
+                         str(self._clip_rates_path(clip.id))):
                 drop(path)
             clip.raw_path, clip.renders, clip.debug_screenshot = None, {}, None
             self.db.save_clip(clip)

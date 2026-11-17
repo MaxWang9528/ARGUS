@@ -259,6 +259,14 @@ async def get_clip_video(request: Request, clip_id: str, layout: str | None = No
     return FileResponse(path, media_type="video/mp4")
 
 
+@router.get("/clips/{clip_id}/rates")
+async def get_clip_rates(request: Request, clip_id: str) -> list[dict[str, Any]]:
+    """Chat rate over the clip window (padded 5 s), for replaying it with the video.
+    Video time t corresponds to chat time ``clip.window_start + t``."""
+    lw = _lw(request)
+    return [_dump(r) for r in lw.clip_rates(_clip(lw, clip_id))]
+
+
 @router.get("/clips/{clip_id}/raw")
 async def get_clip_raw(request: Request, clip_id: str) -> FileResponse:
     lw = _lw(request)

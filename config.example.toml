@@ -8,6 +8,9 @@ dashboard_host = "127.0.0.1"
 dashboard_port = 8787
 max_concurrent_renders = 1
 retention_days = 7             # delete raw and rendered clip files older than this (0 = keep)
+# Only clip peaks automatically while the stream's Twitch category is one of these
+# (exact Twitch names, case-insensitive). [] clips any category. "Clip now" ignores it.
+clip_categories = ["Grand Theft Auto VI"]
 
 [twitch]                       # optional: Helix keys for faster live checks and titles
 client_id = ""
@@ -50,7 +53,7 @@ browser_channel = "chromium"   # or "chrome" if Google Chrome is installed
 cookies_file = ""              # fallback if TikTok blocks the in-app login
 headless = false
 dry_run = true                 # stop before clicking Post and save a screenshot
-caption_template = "{streamer} on Twitch 🔴 #{streamer} #twitch #clips"
+caption_template = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
 max_uploads_per_day = 6
 min_minutes_between_uploads = 45
 

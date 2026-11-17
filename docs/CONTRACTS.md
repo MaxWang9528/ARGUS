@@ -47,6 +47,7 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 | `clips/tmp/<clip_id>/` | B | cut scratch (hard links into `buffer/`, so it must share its filesystem) |
 | `clips/raw/<clip_id>.mp4` | B | cut clip, source aspect ratio |
 | `clips/out/<clip_id>_<layout>.mp4` | C | 1080x1920 render |
+| `clips/rates/<clip_id>.json` | core | chat rate over the clip window |
 | `chatlogs/<streamer>/<YYYY-MM-DD>.jsonl` | A | one `ChatMessage` JSON per line |
 | `upload_debug/` | D | screenshots |
 
@@ -65,6 +66,9 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 **Logging:** use `logging.getLogger("livewatcher.<area>")`. The app forwards those records to the `log` topic. Tag a line with `extra={"streamer": name}`.
 
 **Clips:** after changing a clip, always `db.save_clip(clip)` then `bus.publish(Topic.CLIP, clip)`.
+
+## Game filter (Phase 2)
+`StreamStatus.category` is the Twitch category from the last live check (streamlink or Helix `game_name`), `""` when unknown. When `general.clip_categories` is non-empty, `ClipService` ignores **auto** peaks unless the category matches one of them (case-insensitive); an unknown category counts as no match. Manual clips are never filtered.
 
 ## Retention (Phase 2)
 Every hour the app deletes the raw, rendered and screenshot files of clips older than `general.retention_days` (0 keeps everything), except clips still in progress. The clip row stays, with its file paths cleared. `clips/tmp/` folders older than a day go too. Chat logs are kept.
@@ -90,6 +94,7 @@ JSON bodies are the pydantic models dumped with `model_dump(mode="json")`. Error
 | `GET /api/clips?status=a,b&streamer=&limit=` | `Clip[]`, newest first | `app.db.list_clips` |
 | `GET /api/clips/{id}` | `Clip` | `app.db.get_clip` |
 | `GET /api/clips/{id}/video?layout=` | rendered mp4 (default: active layout), supports Range | `clip.renders` |
+| `GET /api/clips/{id}/rates` **(Phase 2)** | `RateSample[]` over the clip window ±5 s, oldest first; video time t = chat time `window_start + t` | `app.clip_rates` (saved to `clips/rates/<id>.json` when the clip is ready) |
 | `GET /api/clips/{id}/raw` | raw mp4 | `clip.raw_path` |
 | `GET /api/clips/{id}/screenshot` | upload debug screenshot | `clip.debug_screenshot` |
 | `POST /api/clips/{id}/approve` | `Clip` | `app.clips.approve` |

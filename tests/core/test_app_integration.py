@@ -107,3 +107,60 @@ async def test_clip_events_are_snapshots(store: ConfigStore) -> None:
         first = (await sub.queue.get())[1]
         second = (await sub.queue.get())[1]
     assert (first.status, second.status) == (ClipStatus.WAITING, ClipStatus.CUTTING)
+
+
+class _Status:
+    def __init__(self, category: str) -> None:
+        from livewatcher.core.models import StreamStatus
+        self.st = StreamStatus(streamer="alpha", live=True, category=category)
+
+    def __call__(self, streamer: str):
+        return self.st
+
+
+def _peak(source: str = "auto"):
+    from livewatcher.core.models import PeakEvent
+    now = time.time()
+    return PeakEvent(streamer="alpha", ts_start=now, ts_peak=now, ts_end=now, source=source)
+
+
+def test_category_gate_drops_other_games(store: ConfigStore, monkeypatch) -> None:
+    store.update({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
+    app = App(store, demo=True, serve=False)
+    monkeypatch.setattr(app.clips, "_spawn", lambda coro: coro.close())
+    monkeypatch.setattr(app.recorder, "status", _Status("World of Warcraft"))
+    assert app.clips.on_peak(_peak()) is None
+    monkeypatch.setattr(app.recorder, "status", _Status(""))  # unknown: fail closed
+    assert app.clips.on_peak(_peak()) is None
+    monkeypatch.setattr(app.recorder, "status", _Status("grand theft auto vi"))
+    assert app.clips.on_peak(_peak()) is not None
+    monkeypatch.setattr(app.recorder, "status", _Status("Just Chatting"))
+    assert app.clips.on_peak(_peak("manual")) is not None  # clip now always works
+
+
+def test_no_category_filter_by_default(store: ConfigStore, monkeypatch) -> None:
+    app = App(store, demo=True, serve=False)
+    monkeypatch.setattr(app.clips, "_spawn", lambda coro: coro.close())
+    monkeypatch.setattr(app.recorder, "status", _Status("Just Chatting"))
+    assert app.clips.on_peak(_peak()) is not None
+
+
+def test_clip_rates_saved_and_read_back(store: ConfigStore) -> None:
+    from livewatcher.core.models import RateSample
+    app = App(store, demo=True, serve=False)
+    t0 = 1_800_000_000.0
+    from collections import deque
+    app._rates["alpha"] = deque(RateSample(streamer="alpha", ts=t0 + i, rate=i, baseline=1, threshold=3, z=0)
+                                for i in range(100))
+    clip = Clip(streamer="alpha", window_start=t0 + 40, window_end=t0 + 60)
+    app.save_clip_rates(clip)
+    app._rates.clear()  # history gone; the saved file still answers
+    got = app.clip_rates(clip)
+    assert [r.ts - t0 for r in got] == [float(i) for i in range(35, 66)]
+    raw = store.get().data_dir / "clips" / "raw" / f"{clip.id}.mp4"
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    raw.write_bytes(b"x")
+    clip.raw_path, clip.status, clip.created_at = str(raw), ClipStatus.UPLOADED, time.time() - 30 * DAY
+    app.db.save_clip(clip)
+    app.cleanup()
+    assert not app._clip_rates_path(clip.id).exists()

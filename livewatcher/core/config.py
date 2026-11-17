@@ -32,6 +32,9 @@ class General(_Model):
     dashboard_port: int = 8787
     max_concurrent_renders: int = 1
     retention_days: int = 7
+    # Only clip peaks automatically while the stream's Twitch category is one of these
+    # (case-insensitive). Empty: any category. Manual "clip now" ignores it.
+    clip_categories: list[str] = Field(default_factory=list)
 
 
 class Twitch(_Model):

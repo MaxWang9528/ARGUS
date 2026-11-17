@@ -53,6 +53,7 @@ class StreamStatus(BaseModel):
     streamer: str
     live: bool = False
     title: str = ""
+    category: str = ""  # Twitch category (game) from the last live check, "" if unknown
     recorder_state: Literal["stopped", "starting", "recording", "error"] = "stopped"
     buffer_start: float | None = None  # chat-time range the buffer covers
     buffer_end: float | None = None

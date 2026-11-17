@@ -33,6 +33,7 @@ HELIX_STREAMS_URL = "https://api.twitch.tv/helix/streams"
 class LiveInfo:
     live: bool
     title: str = ""
+    category: str = ""       # Twitch category (game name)
     method: str = ""          # "helix" or "streamlink"
     error: str = ""           # set when the check itself failed (live is then a guess)
     checked_at: float = 0.0
@@ -52,13 +53,15 @@ def streamlink_check(session: Any, name: str) -> LiveInfo:
     except (PluginError, NoPluginError, OSError) as exc:
         return LiveInfo(live=False, method="streamlink", error=f"{type(exc).__name__}: {exc}",
                         checked_at=time.time())
-    title = ""
+    title = category = ""
     if streams:
         try:
             title = plugin.get_title() or ""
-        except Exception:  # noqa: BLE001 - metadata is optional
-            title = ""
-    return LiveInfo(live=bool(streams), title=title, method="streamlink", checked_at=time.time())
+            category = plugin.get_category() or ""
+        except Exception as exc:  # noqa: BLE001 - metadata is optional
+            log.debug("no stream metadata for %s: %s", name, exc)
+    return LiveInfo(live=bool(streams), title=title, category=category, method="streamlink",
+                    checked_at=time.time())
 
 
 def _default_session() -> Any:
@@ -147,6 +150,7 @@ class LiveChecker:
             for item in r.json().get("data", []):
                 login = str(item.get("user_login", "")).lower()
                 if login in out and item.get("type", "live") == "live":
-                    out[login] = LiveInfo(live=True, title=item.get("title", ""), method="helix",
+                    out[login] = LiveInfo(live=True, title=item.get("title", ""),
+                                          category=item.get("game_name", ""), method="helix",
                                           checked_at=time.time())
         return out
