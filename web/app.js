@@ -948,6 +948,7 @@ document.addEventListener('alpine:init', () => {
       { id: 'failed', label: 'Failed, dropped and rejected' },
     ],
     confirmDeleteClip: null,
+    clipSize: (() => { try { const v = +localStorage.getItem('argus.clipSize'); return v >= 25 && v <= 90 ? v : 70; } catch { return 70; } })(),
     tabStatuses: {
       review: ['pending_review'],
       queued: ['queued', 'uploading'],
@@ -1263,6 +1264,10 @@ document.addEventListener('alpine:init', () => {
 
     /* ---- config ------------------------------------------------------------ */
     get autoUpload() { return !!this.config?.general.auto_upload; },
+    setClipSize(v) {
+      this.clipSize = Math.min(90, Math.max(25, Math.round(v)));
+      try { localStorage.setItem('argus.clipSize', String(this.clipSize)); } catch { /* private window: not remembered */ }
+    },
     get autoClip() { return !!this.config && this.config.general.auto_clip !== false; },
 
     async patchConfig(patch, okText) {

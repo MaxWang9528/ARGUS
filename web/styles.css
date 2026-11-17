@@ -397,10 +397,21 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
 .steps li.now { background: var(--accent-soft); color: var(--accent); font-weight: 600; animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.55; } }
 
-.clip-list { display: flex; flex-direction: column; gap: 16px; }
+.clip-list { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* Clips tab: a slim rail with the clip-size slider beside the list. --clip-size (25-90)
+   is the player's height in vh; the replay graph gets the rest of the width and grows
+   taller as the player shrinks. One value for the whole page. */
+.clips-layout { --clip-size: 70; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start; }
+.size-rail {
+  position: sticky; top: 76px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.size-rail input[type=range] { writing-mode: vertical-lr; direction: rtl; height: 260px; width: 20px; margin: 0; accent-color: var(--accent); cursor: ns-resize; }
+.rail-label { font-size: 11px; color: var(--ink-3); letter-spacing: .02em; }
+.rail-value { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink); }
 /* A clip card: the big 9:16 player on the left, everything else beside it. */
 .clip {
-  --player-h: min(70vh, 780px);
+  --player-h: min(calc(var(--clip-size, 70) * 1vh), calc(var(--clip-size, 70) * 11.2px));
   display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto 1fr;
   grid-template-areas: "player head" "player main";
   gap: 12px 22px; padding: 14px; scroll-margin-top: 72px;
@@ -418,7 +429,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
 .clip-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .clip-head .streamer-name { font-size: 24px; }
 .replay { display: flex; flex-direction: column; gap: 6px; }
-.chart-wrap.replay-chart { height: 240px; }
+.chart-wrap.replay-chart { height: clamp(160px, calc(240px + (70 - var(--clip-size, 70)) * 6px), 520px); }
 .replay-chart .chart { touch-action: pan-y; }
 .replay-chart .uplot .u-over { cursor: col-resize; }
 .replay-chart.blank .chart { visibility: hidden; }
@@ -584,7 +595,10 @@ legend { font-size: 12px; font-weight: 600; padding: 0 4px; }
   main { padding: 14px 16px 40px; }
   .streams.strip { grid-auto-columns: minmax(260px, 85vw); }
   .clip { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "head" "player" "main"; padding: 12px; gap: 12px; }
-  .clip-player { height: auto; width: min(100%, calc(70vh * 9 / 16)); justify-self: center; }
+  .clips-layout { grid-template-columns: minmax(0, 1fr); }
+  .size-rail { position: static; flex-direction: row; justify-content: center; padding: 0; }
+  .size-rail input[type=range] { writing-mode: horizontal-tb; direction: ltr; width: 60%; height: 20px; cursor: ew-resize; }
+  .clip-player { height: auto; width: min(100%, calc(var(--clip-size, 70) * 1vh * 9 / 16)); justify-self: center; }
   .chart-wrap.replay-chart { height: 180px; }
   .readout { grid-template-columns: repeat(2, 1fr); }
   .layout-body, .limits, .account-form, .account-limits { grid-template-columns: 1fr; }
