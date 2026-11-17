@@ -386,7 +386,7 @@ function dropClipChart(id) {
 document.addEventListener('alpine:init', () => {
   Alpine.data('dash', () => ({
     views: [
-      { id: 'streams', label: 'Streams' }, { id: 'clips', label: 'Clips' },
+      { id: 'streams', label: 'Streams' }, { id: 'clips', label: 'Clips' }, { id: 'accounts', label: 'Accounts' },
       { id: 'debug', label: 'Debug' }, { id: 'settings', label: 'Settings' },
     ],
     clipTabs: [
@@ -426,6 +426,9 @@ document.addEventListener('alpine:init', () => {
     peaks: [],
     clips: [],
     logs: [],
+    accounts: null,     // GET /api/accounts rows, null until loaded
+    upload: null,       // GET /api/upload
+    accountsApi: 'unknown',  // unknown | ok | missing (404: this livewatcher has no accounts API)
 
     // ui state
     selected: null,
@@ -440,6 +443,11 @@ document.addEventListener('alpine:init', () => {
     newStreamer: '',
     addError: '',
     limits: { dirty: false },
+    maxStreamers: 0,
+    groupsOpen: { unwatched: false, offline: false },
+    confirmDelete: null,
+    newAcct: { name: '', max_uploads_per_day: 6, min_minutes_between_uploads: 45, browser_profile_dir: '' },
+    acctError: '',
     logLevel: 'info', logStreamer: '', logSearch: '', logPaused: false, logBacklog: 0, logFollow: true,
     detScope: '',
     peakFilter: '',
@@ -460,6 +468,8 @@ document.addEventListener('alpine:init', () => {
         this.theme = localStorage.getItem('lw.theme') || 'system';
         const v = localStorage.getItem('lw.view');
         if (v && this.views.some(x => x.id === v)) this.view = v;
+        const g = JSON.parse(localStorage.getItem('lw.groups') || 'null');
+        if (g) this.groupsOpen = { ...this.groupsOpen, ...g };
       } catch { /* storage blocked: defaults are fine */ }
       this.applyTheme();
       const fromHash = location.hash.slice(1);
@@ -475,7 +485,10 @@ document.addEventListener('alpine:init', () => {
         try { localStorage.setItem('lw.view', v); } catch { /* ignore */ }
         if (location.hash.slice(1) !== v) history.replaceState(null, '', '#' + v);
         this.$nextTick(() => { this.resizeCharts(); if (v === 'debug') this.scrollLogToEnd(); });
+        if (v === 'accounts' || v === 'clips') this.loadUploadState();
       });
+      this.$watch('clipTab', t => { if (t === 'queued') this.loadUploadState(); });
+      this.$watch('groupsOpen', g => { try { localStorage.setItem('lw.groups', JSON.stringify(g)); } catch { /* ignore */ } }, { deep: true });
       this.$watch('arrange', () => this.$nextTick(() => this.resizeCharts()));
       this.$watch('detScope', () => { this.detPending = {}; });
       this.$watch('logPaused', paused => {
@@ -566,6 +579,9 @@ document.addEventListener('alpine:init', () => {
         this.loadError = '';
         this.loaded = true;
         this.$nextTick(() => { this.redrawAll(); this.scrollLogToEnd(); });
+        // Its own loader: an old server without the accounts API must not blank the page.
+        if (this.accountsApi === 'missing') this.accountsApi = 'unknown';
+        if (this.view === 'accounts' || this.view === 'clips') this.loadUploadState();
       } catch (e) {
         this.loadError = e.message;
       }
@@ -583,6 +599,7 @@ document.addEventListener('alpine:init', () => {
 
     setConfig(config) {
       this.config = config;
+      this.maxStreamers = config.general.max_streamers ?? 0;
       if (!this.limits.dirty) this.loadLimits();
       if (!this.lay.dirty) this.loadLayoutForm();
     },
@@ -602,7 +619,7 @@ document.addEventListener('alpine:init', () => {
             this.peaks.unshift(data); peaksRef.unshift(data);
           }
           break;
-        case 'clip': this.upsertClip(data); break;
+        case 'clip': this.upsertClip(data); this.soonUploadState(); break;
         case 'stream_status': {
           const s = this.streamers.find(x => x.name === data.streamer);
           if (s) s.status = data;
@@ -612,6 +629,7 @@ document.addEventListener('alpine:init', () => {
         case 'config_changed':
           api('GET', '/config').then(c => this.setConfig(c)).catch(() => {});
           if (data.patch && ('streamers' in data.patch || 'general' in data.patch || 'tiktok' in data.patch)) this.refreshState();
+          if (data.patch && 'tiktok' in data.patch) this.soonUploadState();
           break;
         case 'log': this.addLog(data); break;
       }
@@ -673,13 +691,13 @@ document.addEventListener('alpine:init', () => {
       if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO'].includes(t.tagName))) return;
       if (e.key === 'Escape' && this.selected) { this.select(null); return; }
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      if (!this.streamers.length) return;
+      const list = this.recorded;  // the cards on screen, in their order
+      if (!list.length) return;
       e.preventDefault();
-      const i = this.streamers.findIndex(s => s.name === this.selected);
+      const i = list.findIndex(s => s.name === this.selected);
       const step = e.key === 'ArrowRight' ? 1 : -1;
-      const next = i < 0 ? (step > 0 ? 0 : this.streamers.length - 1)
-        : (i + step + this.streamers.length) % this.streamers.length;
-      this.select(this.streamers[next].name);
+      const next = i < 0 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length;
+      this.select(list[next].name);
     },
 
     select(name) {
@@ -702,12 +720,46 @@ document.addEventListener('alpine:init', () => {
     get focused() { return this.streamers.find(s => s.name === this.selected) || null; },
 
     /* ---- streams ---------------------------------------------------------- */
+    // Recorded (enabled, live, within max_streamers) first, by viewers; then live but not
+    // recorded; then everything else. Unknown viewer counts sort last.
+    streamGroup(s) {
+      if (!s.enabled || !s.status.live) return 'offline';
+      return s.status.watched === false ? 'unwatched' : 'recorded';
+    },
+    byViewers(list) {
+      return list.slice().sort((a, b) => (b.status.viewers ?? -1) - (a.status.viewers ?? -1) || a.name.localeCompare(b.name));
+    },
+    get recorded() { return this.byViewers(this.streamers.filter(s => this.streamGroup(s) === 'recorded')); },
+    get unwatched() { return this.byViewers(this.streamers.filter(s => this.streamGroup(s) === 'unwatched')); },
+    get offline() {
+      // Watched ones first, then the ones turned off, each alphabetical.
+      return this.streamers.filter(s => this.streamGroup(s) === 'offline')
+        .sort((a, b) => (b.enabled - a.enabled) || a.name.localeCompare(b.name));
+    },
     liveSummary() {
       if (!this.loaded) return 'Loading…';
       const watched = this.streamers.filter(s => s.enabled);
-      const live = watched.filter(s => s.status.live).length;
       if (!watched.length) return 'Nobody is being watched';
-      return `${live} of ${watched.length} live`;
+      const rec = this.recorded.length, unw = this.unwatched.length;
+      const live = rec + unw;
+      let text = `${live} of ${watched.length} live`;
+      if (unw) text += `, ${rec} recorded`;
+      return text;
+    },
+    fmtViewers(n) {
+      if (n == null) return '';
+      if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '')}M`;
+      if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, '')}K`;
+      return String(n);
+    },
+    viewersText(s) {
+      const n = s.status.viewers;
+      return n == null ? '' : `${this.fmtViewers(n)} viewer${n === 1 ? '' : 's'}`;
+    },
+    offlineNote(s) {
+      if (!s.enabled) return 'turned off in Settings';
+      if (s.status.recorder_state === 'error') return s.status.last_error || 'recorder error';
+      return 'offline';
     },
     snapUrl(name) {
       const ts = this.snapTs[name];
@@ -749,6 +801,7 @@ document.addEventListener('alpine:init', () => {
     },
     clipNowHint(s) {
       if (!s.status.live) return 'Clip now needs the stream to be live.';
+      if (s.status.watched === false) return "Not recorded (over the max streamers limit), so it can't be clipped.";
       const pre = this.config?.detection?.preroll_s;
       return pre != null ? `Saves the last ${Math.round(pre)} s and what follows.` : '';
     },
@@ -792,6 +845,10 @@ document.addEventListener('alpine:init', () => {
         video.play?.().catch(() => {});
       };
       const stop = () => { entry.hls?.destroy(); entry.hls = null; video.pause(); };
+      // Re-sorting by viewers moves cards, and moving a <video> pauses it: start it again.
+      video.addEventListener('pause', () => {
+        if (entry.hls) setTimeout(() => { if (entry.hls && video.isConnected && video.paused) video.play().catch(() => {}); }, 0);
+      });
       // Only play what can be seen: a long strip shouldn't decode every stream.
       entry.io = new IntersectionObserver(([e]) => (e.isIntersecting ? start() : stop()), { threshold: 0.05 });
       entry.io.observe(video);
@@ -893,7 +950,30 @@ document.addEventListener('alpine:init', () => {
     get reviewCount() { return this.clips.filter(c => c.status === 'pending_review').length; },
     tabClips() {
       const st = this.tabStatuses[this.clipTab];
-      return this.clips.filter(c => st.includes(c.status)).sort((a, b) => b.created_at - a.created_at);
+      const list = this.clips.filter(c => st.includes(c.status));
+      if (this.clipTab === 'queued') return list.sort((a, b) => this.queueRank(a, b));
+      return list.sort((a, b) => b.created_at - a.created_at);
+    },
+    // The upload queue's order: the one uploading now, then manual clips, then the
+    // highest score (peak rate / baseline), then the oldest.
+    queueRank(a, b) {
+      return ((b.status === 'uploading') - (a.status === 'uploading'))
+        || (this.isManual(b) - this.isManual(a))
+        || ((b.score || 0) - (a.score || 0))
+        || (a.created_at - b.created_at);
+    },
+    isManual(c) { return this.peakFor(c)?.source === 'manual'; },
+    scoreText(c) {
+      if (this.isManual(c)) return 'manual';
+      return c.score > 0 ? `${c.score.toFixed(1)}× chat` : '';
+    },
+    scoreTitle(c) {
+      if (this.isManual(c)) return 'Clipped by hand: goes first in the upload queue';
+      return 'Peak chat rate divided by normal chat. Higher goes first when upload slots are short.';
+    },
+    showAccount(c) { return !!c.account && ['uploading', 'uploaded', 'dry_run_ok', 'failed'].includes(c.status); },
+    accountText(c) {
+      return (c.status === 'uploaded' ? 'Posted to ' : c.status === 'dry_run_ok' ? 'Dry run on ' : c.status === 'uploading' ? 'Uploading to ' : 'Tried ') + c.account;
     },
     tabCount(id) {
       const st = this.tabStatuses[id];
@@ -990,6 +1070,154 @@ document.addEventListener('alpine:init', () => {
       } finally {
         this.busy['render:' + c.id] = false;
       }
+    },
+
+    /* ---- accounts and the upload queue -------------------------------------- */
+    // There is no WebSocket topic for these, so they're fetched when they're on screen,
+    // after clip and config events, and every few seconds while a login window is open.
+    async loadUploadState() {
+      if (this.accountsApi === 'missing') return;
+      const one = path => api('GET', path).then(d => ({ ok: true, d }), e => ({ ok: false, e }));
+      const [a, u] = await Promise.all([one('/accounts'), one('/upload')]);
+      if ((!a.ok && a.e.status === 404) || (!u.ok && u.e.status === 404)) {
+        this.accountsApi = 'missing';
+        this.accounts = null; this.upload = null;
+        clearInterval(this._loginPoll); this._loginPoll = null;
+        return;
+      }
+      if (a.ok && Array.isArray(a.d)) { this.accounts = a.d; this.accountsApi = 'ok'; }
+      if (u.ok && u.d) this.upload = u.d;
+      this.watchLogins();
+    },
+    soonUploadState() {
+      if (this.view !== 'accounts' && this.view !== 'clips') return;
+      clearTimeout(this._uploadTimer);
+      this._uploadTimer = setTimeout(() => this.loadUploadState(), 800);
+    },
+    watchLogins() {
+      const open = (this.accounts || []).some(a => a.login_open);
+      if (open && !this._loginPoll) this._loginPoll = setInterval(() => this.loadUploadState(), 3000);
+      if (!open && this._loginPoll) { clearInterval(this._loginPoll); this._loginPoll = null; }
+    },
+    get implicitAccount() { return !!this.config && !(this.config.tiktok.accounts || []).length; },
+    // One row per account: the config's list (or the implicit default) joined with what
+    // /api/accounts knows about each.
+    accountRows() {
+      if (!this.config) return [];
+      const t = this.config.tiktok;
+      const base = this.implicitAccount
+        ? [{ name: 'default', enabled: true, max_uploads_per_day: t.max_uploads_per_day, min_minutes_between_uploads: t.min_minutes_between_uploads, browser_profile_dir: t.browser_profile_dir }]
+        : t.accounts;
+      return base.map(a => ({ ...a, live: (this.accounts || []).find(x => x.name === a.name) || null }));
+    },
+    loginText(row) {
+      const l = row.live;
+      if (!l) return '';
+      if (l.login_open) return 'Browser window open, log in there…';
+      if (l.logged_in === true) return '✓ Logged in';
+      if (l.logged_in === false) return '✗ Logged out';
+      return 'Not checked';
+    },
+    loginClass(row) {
+      const l = row.live;
+      if (!l) return '';
+      return l.login_open ? 'open' : l.logged_in === true ? 'good' : l.logged_in === false ? 'bad' : 'unknown';
+    },
+    slotText(row) {
+      const l = row.live;
+      if (!l) return '';
+      if (!row.enabled) return 'Turned off';
+      const nf = l.next_free_ts;
+      if (nf != null && nf > this.now) return `Next slot ${this.fmtIn(nf)}`;
+      if (nf == null && l.uploads_24h >= l.max_uploads_per_day) return 'No slot today';
+      return 'Free now';
+    },
+    accountList() { return JSON.parse(JSON.stringify(this.config.tiktok.accounts || [])); },
+    async saveAccounts(list, okText) {
+      const cfg = await this.patchConfig({ tiktok: { accounts: list } }, okText);
+      if (cfg) this.loadUploadState();
+      return cfg;
+    },
+    async setAccountEnabled(name, on) {
+      const list = this.accountList();
+      const a = list.find(x => x.name === name);
+      if (!a) return;
+      a.enabled = on;
+      await this.saveAccounts(list, on ? `${name} is posted to again.` : `${name} won't be posted to.`);
+    },
+    // f: the row's own form ({ max_uploads_per_day, min_minutes_between_uploads, dirty }).
+    async saveAccountLimits(row, f) {
+      const limits = { max_uploads_per_day: +f.max_uploads_per_day, min_minutes_between_uploads: +f.min_minutes_between_uploads };
+      let cfg;
+      if (this.implicitAccount) {
+        cfg = await this.patchConfig({ tiktok: limits }, 'Limits saved.');
+        if (cfg) this.loadUploadState();
+      } else {
+        const list = this.accountList();
+        const a = list.find(x => x.name === row.name);
+        if (!a) return;
+        Object.assign(a, limits);
+        cfg = await this.saveAccounts(list, `Limits for ${row.name} saved.`);
+      }
+      if (cfg) f.dirty = false;
+    },
+    async addAccount() {
+      const n = this.newAcct;
+      const name = n.name.trim();
+      this.acctError = '';
+      if (!/^[A-Za-z0-9_.-]+$/.test(name)) { this.acctError = 'A name is letters, digits, dots, dashes or underscores, with no spaces.'; return; }
+      const list = this.accountList();
+      if (list.some(a => a.name.toLowerCase() === name.toLowerCase())) { this.acctError = `There is already an account called ${name}.`; return; }
+      const acct = { name, enabled: true, max_uploads_per_day: +n.max_uploads_per_day, min_minutes_between_uploads: +n.min_minutes_between_uploads };
+      if (n.browser_profile_dir.trim()) acct.browser_profile_dir = n.browser_profile_dir.trim();
+      list.push(acct);
+      if (await this.saveAccounts(list, `Added ${name}. Log in to it before it can post.`)) {
+        this.newAcct = { name: '', max_uploads_per_day: 6, min_minutes_between_uploads: 45, browser_profile_dir: '' };
+      }
+    },
+    async deleteAccount(name) {
+      this.confirmDelete = null;
+      await this.saveAccounts(this.accountList().filter(a => a.name !== name), `Removed ${name}. Its profile folder is still on disk.`);
+    },
+    setCycle(on) {
+      this.config.tiktok.cycle_accounts = on;
+      this.patchConfig({ tiktok: { cycle_accounts: on } }, on ? 'Cycling: each upload goes to the next account in turn.' : 'Not cycling: uploads go to the first account with a free slot.')
+        .then(cfg => { if (cfg) this.loadUploadState(); });
+    },
+    async login(name) {
+      this.busy['login:' + name] = true;
+      try {
+        await api('POST', `/accounts/${encodeURIComponent(name)}/login`);
+        this.toast(`A browser window opened for ${name}. Log in to TikTok there, then close it.`);
+      } catch (e) {
+        if (e.status === 409) this.toast(`A login window for ${name} is already open.`);
+        else { this.toast(`Couldn't open the login window: ${e.message}`, 'bad'); return; }
+      } finally {
+        this.busy['login:' + name] = false;
+      }
+      const row = (this.accounts || []).find(a => a.name === name);
+      if (row) row.login_open = true;  // the next poll confirms it
+      this.watchLogins();
+      this.loadUploadState();
+    },
+    async checkLogin(name) {
+      this.busy['check:' + name] = true;
+      try {
+        const r = await api('POST', `/accounts/${encodeURIComponent(name)}/check`);
+        const row = (this.accounts || []).find(a => a.name === name);
+        if (row) row.logged_in = r.logged_in;
+        this.toast(r.logged_in ? `${name} is logged in.` : `${name} is logged out. Use Log in.`, r.logged_in ? 'ok' : 'bad');
+      } catch (e) {
+        this.toast(`Couldn't check ${name}: ${e.message}`, 'bad');
+      } finally {
+        this.busy['check:' + name] = false;
+      }
+    },
+    uploadSummary() {
+      const u = this.upload;
+      if (!u) return '';
+      const n = u.queued;
+      return `${n} clip${n === 1 ? '' : 's'} queued` + (u.next_account ? `, next goes to ${u.next_account}` : '');
     },
 
     /* ---- config ------------------------------------------------------------ */
@@ -1155,11 +1383,19 @@ document.addEventListener('alpine:init', () => {
         max_uploads_per_day: t.max_uploads_per_day,
         min_minutes_between_uploads: t.min_minutes_between_uploads,
         caption_template: t.caption_template,
+        max_queue_age_h: t.max_queue_age_h ?? 6,
         dirty: false,
       };
     },
+    async saveMaxStreamers() {
+      const n = Math.max(0, Math.round(+this.maxStreamers || 0));
+      this.maxStreamers = n;
+      if (n === this.config?.general.max_streamers) return;
+      await this.patchConfig({ general: { max_streamers: n } }, n ? `Recording at most ${n} streamers at once.` : 'Recording every live streamer.');
+    },
     async saveLimits() {
       const { dirty, ...tiktok } = this.limits;
+      tiktok.max_queue_age_h = +tiktok.max_queue_age_h;
       if (await this.patchConfig({ tiktok }, 'Upload limits saved.')) this.limits.dirty = false;
     },
 
@@ -1219,6 +1455,13 @@ document.addEventListener('alpine:init', () => {
       if (v == null || Number.isNaN(+v)) return '–';
       const decimals = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
       return (+v).toFixed(decimals);
+    },
+    fmtIn(ts) {
+      const s = ts - this.now;
+      if (s < 60) return 'in under a minute';
+      if (s < 3600) return `in ${Math.round(s / 60)} min`;
+      const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+      return m ? `in ${h} h ${m} min` : `in ${h} h`;
     },
     fmtAgo(ts) {
       const s = this.now - ts;
