@@ -86,3 +86,24 @@ async def test_app_with_dashboard_stops_cleanly(store: ConfigStore, capsys) -> N
     except asyncio.CancelledError:
         pass
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_detection_rejects_non_positive_bins(store: ConfigStore) -> None:
+    import pytest
+    from pydantic import ValidationError
+    for field in ("bin_s", "smooth_s"):
+        with pytest.raises(ValidationError):
+            store.update({"detection": {field: 0}})
+
+
+async def test_clip_events_are_snapshots(store: ConfigStore) -> None:
+    from livewatcher.core.events import Topic
+    app = App(store, demo=True, serve=False)
+    with app.bus.subscribe(Topic.CLIP) as sub:
+        clip = Clip(streamer="alpha", window_start=0, window_end=1)
+        app.clips._save(clip)
+        clip.status = ClipStatus.CUTTING
+        app.clips._save(clip)
+        first = (await sub.queue.get())[1]
+        second = (await sub.queue.get())[1]
+    assert (first.status, second.status) == (ClipStatus.WAITING, ClipStatus.CUTTING)

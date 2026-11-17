@@ -224,5 +224,6 @@ def test_a_step_to_a_new_chat_level_gives_at_most_one_peak():
 
 
 def test_bad_bin_s_does_not_crash():
-    samples, _ = run(chat([4.0] * 30), 30, Detection(bin_s=0))
+    # Config validation now rejects bin_s <= 0; the detector's own guard stays as a backstop.
+    samples, _ = run(chat([4.0] * 30), 30, Detection().model_copy(update={"bin_s": 0}))
     assert len(samples) == 30

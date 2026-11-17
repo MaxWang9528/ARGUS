@@ -41,8 +41,8 @@ class Twitch(_Model):
 
 
 class Detection(_Model):
-    bin_s: float = 1
-    smooth_s: float = 5
+    bin_s: float = Field(1, gt=0)
+    smooth_s: float = Field(5, gt=0)
     baseline_window_s: float = 600
     multiplier: float = 3.0
     z_threshold: float = 4.0

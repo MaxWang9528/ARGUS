@@ -80,7 +80,8 @@ class ClipService:
     # ---- helpers -------------------------------------------------------------
     def _save(self, clip: Clip) -> None:
         self.app.db.save_clip(clip)
-        self.app.bus.publish(Topic.CLIP, clip)
+        # A copy: the clip object keeps changing, and subscribers read events later.
+        self.app.bus.publish(Topic.CLIP, clip.model_copy(deep=True))
 
     def _get(self, clip_id: str) -> Clip:
         clip = self.app.db.get_clip(clip_id)
@@ -330,7 +331,7 @@ class App:
                 drop(path)
             clip.raw_path, clip.renders, clip.debug_screenshot = None, {}, None
             self.db.save_clip(clip)
-            self.bus.publish(Topic.CLIP, clip)
+            self.bus.publish(Topic.CLIP, clip.model_copy(deep=True))
         tmp = clips_dir / "tmp"
         if tmp.is_dir():
             for d in tmp.iterdir():
