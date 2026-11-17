@@ -96,7 +96,40 @@ class ClipService:
         task.add_done_callback(self._tasks.discard)
 
     # ---- pipeline ------------------------------------------------------------
+    def recover(self) -> None:
+        """Clips left half-made by a previous run (ARGUS stopped mid-way). Nothing is
+        working on them any more, so they would sit in "being made" forever.
+        - waiting/cutting: the buffer is wiped at start-up, so they can't be cut: dropped.
+        - rendering with the raw cut on disk: rendered again."""
+        stuck = self.app.db.list_clips(
+            status=[ClipStatus.WAITING, ClipStatus.CUTTING, ClipStatus.RENDERING], limit=10_000)
+        for clip in stuck:
+            if clip.status is ClipStatus.RENDERING and clip.raw_path and Path(clip.raw_path).exists():
+                log.info("clip %s: ARGUS was stopped while it rendered; rendering again", clip.id,
+                         extra={"streamer": clip.streamer})
+                self._spawn(self._resume_render(clip))
+                continue
+            clip.status = ClipStatus.DROPPED
+            clip.error = "interrupted: ARGUS was stopped before this clip was cut"
+            self._save(clip)
+            log.warning("clip %s dropped: %s", clip.id, clip.error, extra={"streamer": clip.streamer})
+
+    async def _resume_render(self, clip: Clip) -> None:
+        try:
+            await self._render(clip, clip.active_layout)
+            auto = self.app.store.get().general.auto_upload
+            clip.status = ClipStatus.QUEUED if auto else ClipStatus.PENDING_REVIEW
+            self._save(clip)
+            self.app.save_clip_rates(clip)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            clip.status, clip.error = ClipStatus.FAILED, f"{type(exc).__name__}: {exc}"
+            self._save(clip)
+            log.exception("clip %s failed", clip.id, extra={"streamer": clip.streamer})
+
     async def run(self) -> None:
+        self.recover()
         with self.app.bus.subscribe(Topic.PEAK) as sub:
             async for _, peak in sub:
                 if peak.source == "auto":

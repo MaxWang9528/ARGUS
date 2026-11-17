@@ -251,3 +251,22 @@ def test_delete_one_clip(store: ConfigStore) -> None:
     assert app.db.get_clip(clip.id) is None
     with pytest.raises(ClipError):
         app.delete_clip(busy.id)
+
+
+async def test_half_made_clips_are_recovered_at_start(store: ConfigStore) -> None:
+    app = App(store, demo=True, serve=False)
+    cutting = _clip_with_files(app, ClipStatus.CUTTING, age_days=0)
+    waiting = Clip(streamer="alpha", window_start=0, window_end=1, status=ClipStatus.WAITING)
+    app.db.save_clip(waiting)
+    rendering = _clip_with_files(app, ClipStatus.RENDERING, age_days=0)
+    done = _clip_with_files(app, ClipStatus.PENDING_REVIEW, age_days=0)
+    app.clips.recover()
+    for c in (cutting, waiting):
+        got = app.db.get_clip(c.id)
+        assert got.status == ClipStatus.DROPPED and "interrupted" in got.error
+    for _ in range(100):  # the fake renderer takes a moment
+        if app.db.get_clip(rendering.id).status == ClipStatus.PENDING_REVIEW:
+            break
+        await asyncio.sleep(0.05)
+    assert app.db.get_clip(rendering.id).status == ClipStatus.PENDING_REVIEW
+    assert app.db.get_clip(done.id).status == ClipStatus.PENDING_REVIEW

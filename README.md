@@ -131,6 +131,8 @@ plus: rejected (by you), dropped (window not recordable: ad gap, too old, stream
 4. The clip's chat-rate samples are saved to `clips/rates/<id>.json`, so the dashboard can replay the graph with the video.
 5. **pending_review** if auto-upload is off, otherwise **queued**.
 
+If ARGUS is stopped while clips are being made, on the next start clips that were waiting or being cut are marked dropped ("interrupted"), because the buffer they needed is gone. Clips that were rendering are rendered again from their raw cut.
+
 ### 7. Vertical layouts (`argus/render/`)
 
 | Layout | Result | Settings |
