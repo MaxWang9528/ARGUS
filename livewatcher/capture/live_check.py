@@ -1,13 +1,20 @@
 """Who is live right now.
 
-Two methods:
+Three methods, tried in this order:
 - **Helix** (``twitch.client_id`` and ``client_secret`` set): one ``GET /helix/streams``
-  for up to 100 channels with an app access token. Gives the title too.
-- **streamlink** (no keys): ask the Twitch plugin for streams. No streams means
-  offline. Measured on this machine: 0.1 s for an offline channel, 0.5-1.5 s for a
-  live one. Blocking, so it runs in a thread, a few channels at a time.
+  for up to 100 channels with an app access token. Gives title, category and viewers.
+- **GQL** (no keys): one ``POST https://gql.twitch.tv/gql`` for up to 100 channels with
+  Twitch's public web client id (the one streamlink uses), asking
+  ``users(logins:) { login stream { type viewersCount title game { name } } }``. No
+  credentials. A ``null`` stream means offline; an unknown login comes back as ``null``.
+  Measured for 62 channels (10 live): one request, ~0.1 s warm (up to ~0.9 s for a
+  cold first connection), ~0.9 KB up and ~3.6 KB down. Its answers matched the
+  streamlink check exactly (live and category) on all 62.
+- **streamlink** (fallback): ask the Twitch plugin for streams. No streams means
+  offline. 0.1 s for an offline channel, 0.5-1.5 s for a live one. Blocking, so it runs
+  in a thread, a few channels at a time. No viewer count.
 
-If Helix fails, the streamlink method is used for that round.
+If one method fails, the next one is used for that round.
 """
 
 from __future__ import annotations
@@ -27,6 +34,11 @@ log = logging.getLogger("livewatcher.capture")
 
 HELIX_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 HELIX_STREAMS_URL = "https://api.twitch.tv/helix/streams"
+GQL_URL = "https://gql.twitch.tv/gql"
+GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"  # Twitch's public web client id (streamlink's too)
+GQL_QUERY = ("query LivewatcherStreams($logins: [String!]) { users(logins: $logins) "
+             "{ login stream { type viewersCount title game { name } } } }")
+BATCH = 100  # logins per Helix or GQL request
 
 
 @dataclass
@@ -34,7 +46,8 @@ class LiveInfo:
     live: bool
     title: str = ""
     category: str = ""       # Twitch category (game name)
-    method: str = ""          # "helix" or "streamlink"
+    viewers: int | None = None  # None when unknown (always for streamlink)
+    method: str = ""          # "helix", "gql" or "streamlink"
     error: str = ""           # set when the check itself failed (live is then a guess)
     checked_at: float = 0.0
 
@@ -96,7 +109,11 @@ class LiveChecker:
             try:
                 return await self._check_helix(names, tw.client_id, tw.client_secret)
             except (httpx.HTTPError, KeyError, ValueError) as exc:
-                log.warning("Helix live check failed, using streamlink: %s", exc)
+                log.warning("Helix live check failed, using GQL: %s", exc)
+        try:
+            return await self._check_gql(names)
+        except (httpx.HTTPError, KeyError, ValueError, TypeError, AttributeError) as exc:
+            log.warning("GQL live check failed, using streamlink: %s", exc)
         return await self._check_streamlink(names)
 
     async def aclose(self) -> None:
@@ -136,8 +153,8 @@ class LiveChecker:
 
     async def _check_helix(self, names: list[str], client_id: str, secret: str) -> dict[str, LiveInfo]:
         out = {n: LiveInfo(live=False, method="helix", checked_at=time.time()) for n in names}
-        for i in range(0, len(names), 100):
-            chunk = names[i:i + 100]
+        for i in range(0, len(names), BATCH):
+            chunk = names[i:i + BATCH]
             params = [("user_login", n) for n in chunk] + [("first", "100")]
             for attempt in (0, 1):
                 token = await self._app_token(client_id, secret, force=attempt == 1)
@@ -151,6 +168,43 @@ class LiveChecker:
                 login = str(item.get("user_login", "")).lower()
                 if login in out and item.get("type", "live") == "live":
                     out[login] = LiveInfo(live=True, title=item.get("title", ""),
-                                          category=item.get("game_name", ""), method="helix",
-                                          checked_at=time.time())
+                                          category=item.get("game_name", ""),
+                                          viewers=_int_or_none(item.get("viewer_count")),
+                                          method="helix", checked_at=time.time())
         return out
+
+    # ---- GQL (no keys) -------------------------------------------------------
+    async def _check_gql(self, names: list[str]) -> dict[str, LiveInfo]:
+        out = {n: LiveInfo(live=False, method="gql", checked_at=time.time()) for n in names}
+        for i in range(0, len(names), BATCH):
+            chunk = names[i:i + BATCH]
+            r = await self._client().post(GQL_URL, headers={"Client-ID": GQL_CLIENT_ID}, json={
+                "operationName": "LivewatcherStreams", "query": GQL_QUERY,
+                "variables": {"logins": chunk}})
+            r.raise_for_status()
+            body = r.json()
+            data = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(data, dict) or not isinstance(data.get("users"), list):
+                errors = body.get("errors") if isinstance(body, dict) else body
+                raise ValueError(f"GQL answered without data: {str(errors)[:200]}")  # noqa: TRY004
+            now = time.time()
+            for user in data["users"]:
+                if not user:
+                    continue  # unknown login: offline
+                login = str(user.get("login", "")).lower()
+                stream = user.get("stream")
+                if login not in out or not stream or stream.get("type", "live") != "live":
+                    continue
+                game = stream.get("game") or {}
+                out[login] = LiveInfo(live=True, title=stream.get("title") or "",
+                                      category=game.get("name") or "",
+                                      viewers=_int_or_none(stream.get("viewersCount")),
+                                      method="gql", checked_at=now)
+        return out
+
+
+def _int_or_none(v: Any) -> int | None:
+    try:
+        return None if v is None else int(v)
+    except (TypeError, ValueError):
+        return None

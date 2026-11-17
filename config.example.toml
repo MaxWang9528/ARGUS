@@ -11,6 +11,7 @@ retention_days = 7             # delete raw and rendered clip files older than t
 # Only clip peaks automatically while the stream's Twitch category is one of these
 # (exact Twitch names, case-insensitive). [] clips any category. "Clip now" ignores it.
 clip_categories = ["Grand Theft Auto VI"]
+max_streamers = 12             # record at most this many live streamers at once (0 = no limit): clip_categories first, then most viewers; ~80 MB RAM and 0.4 MB/s each
 
 [twitch]                       # optional: Helix keys for faster live checks and titles
 client_id = ""
@@ -59,12 +60,203 @@ caption_template = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} 
 max_uploads_per_day = 6
 min_minutes_between_uploads = 45
 
+# Twitch channels to watch, the most popular first, favouring big GTA / GTA RP / variety
+# streamers. Every one is checked for being live and has its chat read; only the top
+# general.max_streamers live ones are recorded. Set enabled = false to skip one.
+#
+# Every entry can also set its own layout and override any [detection] setting:
+# [[streamers]]
+# name = "somestreamer"
+# enabled = true
+# layout = "stacked"
+# crop_x = 0.5                                           # crop layout: 0 = left, 1 = right
+# stack_top = { x = 0.0, y = 0.6, w = 0.25, h = 0.4 }    # fractions of the frame
+# stack_bottom = { x = 0.15, y = 0.0, w = 0.7, h = 1.0 }
+# stack_split = 0.4                                      # share of the height the top region gets
+# multiplier = 2.5                                       # a detection override for this streamer
+
 [[streamers]]
-name = "somestreamer"
-enabled = true
-layout = "stacked"
-crop_x = 0.5                                           # crop layout: 0 = left, 1 = right
-stack_top = { x = 0.0, y = 0.6, w = 0.25, h = 0.4 }    # fractions of the frame
-stack_bottom = { x = 0.15, y = 0.0, w = 0.7, h = 1.0 }
-stack_split = 0.4                                      # share of the height the top region gets
-multiplier = 2.5                                       # a detection override for this streamer
+name = "kaicenat"           # said he'll marathon GTA 6
+
+[[streamers]]
+name = "xqc"
+
+[[streamers]]
+name = "jynxzi"
+
+[[streamers]]
+name = "caseoh_"
+
+[[streamers]]
+name = "ibai"
+
+[[streamers]]
+name = "auronplay"
+
+[[streamers]]
+name = "rubius"
+
+[[streamers]]
+name = "zackrawrr"
+
+[[streamers]]
+name = "lacy"               # announced a GTA 6 launch stream
+
+[[streamers]]
+name = "summit1g"
+
+[[streamers]]
+name = "stableronaldo"
+
+[[streamers]]
+name = "clix"               # announced a GTA 6 launch stream
+
+[[streamers]]
+name = "shroud"
+
+[[streamers]]
+name = "elmariana"
+
+[[streamers]]
+name = "juansguarnizo"
+
+[[streamers]]
+name = "thegrefg"
+
+[[streamers]]
+name = "tfue"
+
+[[streamers]]
+name = "ninja"
+
+[[streamers]]
+name = "plaqueboymax"
+
+[[streamers]]
+name = "fanum"
+
+[[streamers]]
+name = "sodapoppin"
+
+[[streamers]]
+name = "hasanabi"
+
+[[streamers]]
+name = "tarik"
+
+[[streamers]]
+name = "jasontheween"
+
+[[streamers]]
+name = "alanzoka"
+
+[[streamers]]
+name = "pokimane"
+
+[[streamers]]
+name = "ishowspeed"
+
+[[streamers]]
+name = "moistcr1tikal"
+
+[[streamers]]
+name = "rivers_gg"
+
+[[streamers]]
+name = "timthetatman"
+
+[[streamers]]
+name = "nickmercs"
+
+[[streamers]]
+name = "agent00"
+
+[[streamers]]
+name = "illojuan"
+
+[[streamers]]
+name = "sykkuno"
+
+[[streamers]]
+name = "buddha"
+
+[[streamers]]
+name = "montanablack88"
+
+[[streamers]]
+name = "squeezie"
+
+[[streamers]]
+name = "gaules"
+
+[[streamers]]
+name = "lirik"
+
+[[streamers]]
+name = "tommyinnit"
+
+[[streamers]]
+name = "quackity"
+
+[[streamers]]
+name = "tubbo"
+
+[[streamers]]
+name = "loltyler1"
+
+[[streamers]]
+name = "ohnepixel"
+
+[[streamers]]
+name = "papaplatte"
+
+[[streamers]]
+name = "trymacs"
+
+[[streamers]]
+name = "gotaga"
+
+[[streamers]]
+name = "kamet0"
+
+[[streamers]]
+name = "cellbit"
+
+[[streamers]]
+name = "brucedropemoff"
+
+[[streamers]]
+name = "esfandtv"
+
+[[streamers]]
+name = "emiru"
+
+[[streamers]]
+name = "joshimuz"           # GTA speedrunner; announced a GTA 6 launch stream
+
+[[streamers]]
+name = "extraemily"
+
+[[streamers]]
+name = "cyr"
+
+[[streamers]]
+name = "nmplol"
+
+[[streamers]]
+name = "ramee"
+
+[[streamers]]
+name = "kyle"
+
+[[streamers]]
+name = "koil"
+
+[[streamers]]
+name = "ssaab"
+
+[[streamers]]
+name = "penta"
+
+[[streamers]]
+name = "jerma985"
