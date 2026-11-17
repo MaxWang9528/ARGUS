@@ -2,7 +2,7 @@
 
 ARGUS watches Twitch streams live and works out when chat reacts to something. It then clips that moment from a rolling video buffer, renders a 9:16 vertical version and uploads it to TikTok. A local web dashboard shows the streams, the chat-rate graphs and a review queue for the clips.
 
-It is currently set up for **GTA 6** (launching November 19, 2026): GTA VI streams are recorded first and get a GTA 6 caption. Peaks in any game are clipped.
+Peaks in any game are clipped; the stream's game (its Twitch category) decides which streams are recorded first and which caption a clip gets.
 
 ```
 Twitch chat (IRC) ──> chat rate per second ──> peak detector ──> peak (start … end)
@@ -86,11 +86,11 @@ Other commands:
 
 - **Auto-clip** (`general.auto_clip`, a switch in the dashboard header): on, every peak the detector finds is clipped. Off, peaks are still detected and logged but not clipped. **Clip now** always works.
 - The live check reports each stream's **Twitch category** (the game). It doesn't filter anything; it chooses the caption:
-  - `[[tiktok.category_captions]]` gives a caption for one category (exact Twitch name, ignoring case), e.g. "Grand Theft Auto VI" → `{streamer} playing GTA 6 🔴 #gta6 …`.
+  - `[[tiktok.category_captions]]` gives a caption for one category (exact Twitch name, ignoring case), e.g. "Minecraft" → `{streamer} playing Minecraft 🔴 #minecraft …`.
   - Any other category uses `tiktok.caption_template`, where `{category}` becomes the game: "xqc 🔴 Valorant on Twitch #xqc …".
   - Both are editable in Settings.
-- `general.priority_categories` (GTA VI in the example) only decides which streams are recorded first when `max_streamers` limits recording.
-- Each card shows the category, and the log notes each change ("xqc is playing Grand Theft Auto VI").
+- `general.priority_categories` only decides which streams are recorded first when `max_streamers` limits recording.
+- Each card shows the category, and the log notes each change ("xqc is playing Minecraft").
 
 ### 4. Video buffer (`argus/capture/`)
 
@@ -201,8 +201,8 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 |---|---|---|
 | `general.auto_upload` | `false` | Upload clips without review |
 | `general.auto_clip` | `true` | Clip the peaks the detector finds (off: only Clip now) |
-| `general.priority_categories` | `["Grand Theft Auto VI"]` in the example | Record these categories first when `max_streamers` applies |
-| `tiktok.category_captions` | GTA VI in the example | Caption per Twitch category; others use `caption_template` (`{streamer}`, `{category}`) |
+| `general.priority_categories` | `[]` | Record these categories first when `max_streamers` applies |
+| `tiktok.category_captions` | none | Caption per Twitch category; others use `caption_template` (`{streamer}`, `{category}`) |
 | `general.retention_days` | `7` | Delete clip files after this many days |
 | `twitch.client_id` / `client_secret` | empty | Optional Helix keys: faster batched live checks |
 | `detection.*` | see [Peak detection](#2-peak-detection-argusdetectpeakpy) | Thresholds; also adjustable live in the Debug tab |
@@ -212,7 +212,7 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | `render.default_layout` | `blur_fit` | `blur_fit`, `crop` or `stacked` |
 | `tiktok.dry_run` | `true` | Never click Post |
 | `tiktok.dry_run_mode` | `"stop"` | Dry run: `"stop"` before Post, or `"draft"` to save to TikTok drafts |
-| `tiktok.caption_template` | GTA 6 tags in the example | `{streamer}` is replaced |
+| `tiktok.caption_template` | `{streamer} 🔴 {category} on Twitch …` | `{streamer}` and `{category}` are replaced |
 | `general.max_streamers` | `12` in the example | Most live streamers recorded at once (0 = no limit) |
 | `tiktok.accounts` | none (= built-in `default`) | TikTok accounts: `name`, `enabled`, `browser_profile_dir`, `cookies_file`, `max_uploads_per_day`, `min_minutes_between_uploads` |
 | `tiktok.cycle_accounts` | `false` | Post to each account in turn |

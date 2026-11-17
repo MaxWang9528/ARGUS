@@ -199,7 +199,7 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     top = FakeRecorder._fake_viewers(order[0])
     cards.first.locator("[data-testid=viewers]", has_text=f"{top / 1000:.1f}K viewers").wait_for()
     # The Twitch category sits next to the title.
-    cards.first.locator("[data-testid=category]", has_text="Grand Theft Auto VI").wait_for(timeout=10_000)
+    cards.first.locator("[data-testid=category]", has_text="Just Chatting").wait_for(timeout=10_000)
     # The fake recorder reports live and writes snapshots; the cards show them.
     page.locator("[data-testid=stream-card] img").first.wait_for(timeout=10_000)
     page.locator("[data-testid=stream-card] .uplot").first.wait_for(timeout=10_000)
@@ -239,7 +239,7 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
 
     page.locator("[data-testid=nav-debug]").click()
     page.locator("[data-testid=peak-log] tbody tr").first.wait_for(timeout=5_000)
-    assert "Grand Theft Auto VI" in page.locator("[data-testid=health-category]").first.inner_text()
+    assert "Just Chatting" in page.locator("[data-testid=health-category]").first.inner_text()
     page.locator(".layout-preview img").wait_for(timeout=10_000)
     # Layout tool: adjust the crop, see the preview follow, save it to the config.
     page.locator(".layout-tool .seg button", has_text="Crop").click()
@@ -445,7 +445,7 @@ def _shoot(page, shots: str | None, name: str, full_page: bool = False) -> None:
 def _fake_streamers(n_live: int, n_offline: int) -> list[dict]:
     """/api/state entries for streamers the demo doesn't have: live but over max_streamers,
     and offline. No snapshot and no playlist, so the page asks for nothing but their rates."""
-    games = ["Just Chatting", "Grand Theft Auto VI", "Counter-Strike 2", "League of Legends", "Fortnite"]
+    games = ["Just Chatting", "Minecraft", "Counter-Strike 2", "League of Legends", "Fortnite"]
     out = []
     for i in range(n_live):
         out.append({"name": f"live_extra_{i:02d}", "enabled": True, "has_playlist": False, "has_snapshot": False,

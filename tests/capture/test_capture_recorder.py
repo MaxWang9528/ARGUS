@@ -253,12 +253,12 @@ def test_pick_ranks_by_viewers_none_last() -> None:
 
 
 def test_pick_category_first() -> None:
-    cands = [C("big", 90_000, "Just Chatting"), C("gta", 50, "grand theft auto vi"),
-             C("gta2", None, "Grand Theft Auto VI"), C("mid", 5_000, "DayZ")]
-    got = pick_watched(cands, [], 3, ["Grand Theft Auto VI"])
-    assert got == ["gta", "gta2", "big"]
-    # category beats hysteresis: a watched non-GTA streamer loses to any GTA one
-    assert pick_watched(cands, ["big", "mid"], 2, ["Grand Theft Auto VI"]) == ["gta", "gta2"]
+    cands = [C("big", 90_000, "Just Chatting"), C("pri", 50, "minecraft"),
+             C("pri2", None, "Minecraft"), C("mid", 5_000, "DayZ")]
+    got = pick_watched(cands, [], 3, ["Minecraft"])
+    assert got == ["pri", "pri2", "big"]
+    # category beats hysteresis: a watched streamer outside the priority categories loses to any inside them
+    assert pick_watched(cands, ["big", "mid"], 2, ["Minecraft"]) == ["pri", "pri2"]
     # no categories configured: viewers only
     assert pick_watched(cands, [], 2, []) == ["big", "mid"]
 
@@ -321,9 +321,9 @@ async def test_max_streamers_records_only_the_top(store: ConfigStore, bus: Event
         assert not rec.buffer_dir("alpha").exists() and rec.playlist_path("alpha") is None
         await until(lambda: not alive(pid), timeout=3)
 
-        # a GTA stream outranks everyone regardless of viewers
-        store.update({"general": {"priority_categories": ["Grand Theft Auto VI"]}})
-        live.categories["alpha"] = "Grand Theft Auto VI"
+        # a priority-category stream outranks everyone regardless of viewers
+        store.update({"general": {"priority_categories": ["Minecraft"]}})
+        live.categories["alpha"] = "Minecraft"
         rec.request_live_check()
         await until(lambda: rec.status("alpha").recorder_state == "recording")
         assert not rec.status("beta").watched and rec._streams["beta"].proc is None

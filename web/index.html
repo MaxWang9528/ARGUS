@@ -827,8 +827,8 @@
           <span class="field-label">Captions for particular games <small class="muted">exact Twitch category name; replaces the caption above</small></span>
           <template x-for="(row, i) in (limits.category_captions || [])" :key="i">
             <div class="row" style="gap: 8px; margin-top: 6px" data-testid="category-caption-row">
-              <input type="text" style="flex: 0 0 34%" placeholder="Grand Theft Auto VI" x-model="row.category" @input="limits.dirty = true">
-              <input type="text" style="flex: 1" placeholder="{streamer} playing GTA 6 #gta6" x-model="row.caption" @input="limits.dirty = true">
+              <input type="text" style="flex: 0 0 34%" placeholder="Minecraft" x-model="row.category" @input="limits.dirty = true">
+              <input type="text" style="flex: 1" placeholder="{streamer} playing Minecraft #minecraft" x-model="row.caption" @input="limits.dirty = true">
               <button type="button" class="btn" @click="limits.category_captions.splice(i, 1); limits.dirty = true" aria-label="Remove this caption">Remove</button>
             </div>
           </template>

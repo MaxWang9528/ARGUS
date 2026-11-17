@@ -95,7 +95,7 @@ def _gql_transport(log: list[dict], users: dict[str, dict | None], *, body: obje
 
 async def test_gql_check_without_keys(store: ConfigStore) -> None:
     users = {
-        "alpha": {"stream": {"type": "live", "viewersCount": 1234, "title": "hi", "game": {"name": "GTA VI"}}},
+        "alpha": {"stream": {"type": "live", "viewersCount": 1234, "title": "hi", "game": {"name": "Minecraft"}}},
         "beta": {"stream": None},
         "gamma": {"stream": {"type": "rerun", "viewersCount": 5, "title": "", "game": None}},
         "delta": {"stream": {"type": "live", "viewersCount": None, "title": "", "game": None}},
@@ -107,7 +107,7 @@ async def test_gql_check_without_keys(store: ConfigStore) -> None:
     res = await checker.check(names)
     assert len(sent) == 2 and len(sent[0]["variables"]["logins"]) == 100  # batched
     a = res["alpha"]
-    assert a.live and a.viewers == 1234 and a.title == "hi" and a.category == "GTA VI" and a.method == "gql"
+    assert a.live and a.viewers == 1234 and a.title == "hi" and a.category == "Minecraft" and a.method == "gql"
     assert not res["beta"].live and res["beta"].viewers is None and not res["beta"].error
     assert not res["gamma"].live
     assert res["delta"].live and res["delta"].viewers is None and res["delta"].category == ""
@@ -141,7 +141,7 @@ def _helix_transport(log: list[httpx.Request], *, fail_first_streams: int = 0, b
         assert request.headers["Client-Id"] == "cid"
         assert request.headers["Authorization"].startswith("Bearer tok")
         logins = request.url.params.get_list("user_login")
-        data = ([{"user_login": "Alpha", "type": "live", "title": "hi", "game_name": "GTA VI",
+        data = ([{"user_login": "Alpha", "type": "live", "title": "hi", "game_name": "Minecraft",
                   "viewer_count": 4321}] if "alpha" in logins else [])
         return httpx.Response(200, json={"data": data})
 
@@ -156,7 +156,7 @@ async def test_helix_check(store: ConfigStore) -> None:
                           session_factory=lambda: pytest.fail("streamlink must not be used"))
     res = await checker.check(["alpha", "beta"])
     assert res["alpha"].live and res["alpha"].title == "hi" and res["alpha"].method == "helix"
-    assert res["alpha"].viewers == 4321 and res["alpha"].category == "GTA VI"
+    assert res["alpha"].viewers == 4321 and res["alpha"].category == "Minecraft"
     assert not res["beta"].live and res["beta"].viewers is None
     await checker.check(["alpha"])
     assert state["tokens"] == 1  # token cached

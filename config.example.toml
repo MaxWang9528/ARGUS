@@ -11,7 +11,7 @@ max_concurrent_renders = 1
 retention_days = 7             # delete raw and rendered clip files older than this (0 = keep)
 # When max_streamers limits recording, streams in these Twitch categories (exact names,
 # case-insensitive) are recorded first. Not a filter: peaks in any category are clipped.
-priority_categories = ["Grand Theft Auto VI"]
+priority_categories = []       # e.g. ["Minecraft"]
 max_streamers = 12             # record at most this many live streamers at once (0 = no limit): priority_categories first, then most viewers; ~80 MB RAM and 0.4 MB/s each
 
 [twitch]                       # optional: Helix keys for faster live checks and titles
@@ -68,9 +68,9 @@ cycle_accounts = false           # true: each upload goes to the next account wi
 max_queue_age_h = 6              # a queued clip with no free slot for this many hours is dropped (0 = never)
 
 # Captions for particular categories (exact Twitch name, case-insensitive).
-[[tiktok.category_captions]]
-category = "Grand Theft Auto VI"
-caption = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
+# [[tiktok.category_captions]]
+# category = "Minecraft"
+# caption = "{streamer} playing Minecraft 🔴 #minecraft #{streamer} #twitch"
 
 # More than one TikTok account: list them here (this replaces the "default" account).
 # Each has its own browser profile; log each one in with `./lw login-tiktok --account NAME`
@@ -88,7 +88,7 @@ caption = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
 # max_uploads_per_day = 3
 # min_minutes_between_uploads = 90
 
-# Twitch channels to watch, the most popular first, favouring big GTA / GTA RP / variety
+# Twitch channels to watch, the most popular first, favouring big variety
 # streamers. Every one is checked for being live and has its chat read; only the top
 # general.max_streamers live ones are recorded. Set enabled = false to skip one.
 #
@@ -104,7 +104,7 @@ caption = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
 # multiplier = 2.5                                       # a detection override for this streamer
 
 [[streamers]]
-name = "kaicenat"           # said he'll marathon GTA 6
+name = "kaicenat"
 
 [[streamers]]
 name = "xqc"
@@ -128,7 +128,7 @@ name = "rubius"
 name = "zackrawrr"
 
 [[streamers]]
-name = "lacy"               # announced a GTA 6 launch stream
+name = "lacy"
 
 [[streamers]]
 name = "summit1g"
@@ -137,7 +137,7 @@ name = "summit1g"
 name = "stableronaldo"
 
 [[streamers]]
-name = "clix"               # announced a GTA 6 launch stream
+name = "clix"
 
 [[streamers]]
 name = "shroud"
@@ -260,7 +260,7 @@ name = "esfandtv"
 name = "emiru"
 
 [[streamers]]
-name = "joshimuz"           # GTA speedrunner; announced a GTA 6 launch stream
+name = "joshimuz"
 
 [[streamers]]
 name = "extraemily"

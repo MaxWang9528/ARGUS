@@ -146,7 +146,7 @@ class FakeRecorder:
         now = time.time()
         buf = self.store.get().capture.buffer_minutes * 60
         return StreamStatus(
-            streamer=streamer.lower(), live=self._running, title="Fake stream for the demo", category="Grand Theft Auto VI",
+            streamer=streamer.lower(), live=self._running, title="Fake stream for the demo", category="Just Chatting",
             viewers=self._fake_viewers(streamer),
             recorder_state="recording" if self._running else "stopped",
             buffer_start=max(self._started, now - buf), buffer_end=now)

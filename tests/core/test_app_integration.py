@@ -126,13 +126,13 @@ def _peak(source: str = "auto"):
 
 def test_any_category_is_clipped_and_sets_the_caption(store: ConfigStore, monkeypatch) -> None:
     store.update({"tiktok": {"caption_template": "{streamer} {category}",
-                             "category_captions": [{"category": "Grand Theft Auto VI", "caption": "{streamer} GTA6"}]}})
+                             "category_captions": [{"category": "Minecraft", "caption": "{streamer} MC"}]}})
     app = App(store, demo=True, serve=False)
     monkeypatch.setattr(app.clips, "_spawn", lambda coro: coro.close())
     monkeypatch.setattr(app.recorder, "status", _Status("World of Warcraft"))
     assert app.clips.on_peak(_peak()).caption == "alpha World of Warcraft"
-    monkeypatch.setattr(app.recorder, "status", _Status("grand theft auto vi"))
-    assert app.clips.on_peak(_peak()).caption == "alpha GTA6"
+    monkeypatch.setattr(app.recorder, "status", _Status("minecraft"))
+    assert app.clips.on_peak(_peak()).caption == "alpha MC"
     monkeypatch.setattr(app.recorder, "status", _Status(""))
     assert app.clips.on_peak(_peak()).caption == "alpha"
 
@@ -148,8 +148,8 @@ def test_auto_clip_off_skips_auto_peaks_only(store: ConfigStore, monkeypatch) ->
 
 def test_old_clip_categories_key_still_loads(tmp_path) -> None:
     from argus.core.config import Config
-    cfg = Config.model_validate({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
-    assert cfg.general.priority_categories == ["Grand Theft Auto VI"]
+    cfg = Config.model_validate({"general": {"clip_categories": ["Minecraft"]}})
+    assert cfg.general.priority_categories == ["Minecraft"]
 
 
 def test_clip_rates_saved_and_read_back(store: ConfigStore) -> None:
