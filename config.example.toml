@@ -52,7 +52,9 @@ browser_profile_dir = "~/.local/share/livewatcher/browser_profile"
 browser_channel = "chromium"   # or "chrome" if Google Chrome is installed
 cookies_file = ""              # fallback if TikTok blocks the in-app login
 headless = false
-dry_run = true                 # stop before clicking Post and save a screenshot
+dry_run = true                 # never click Post; what happens instead is set by dry_run_mode
+dry_run_mode = "stop"          # "stop": stop on the filled-in form and save a screenshot
+                               # "draft": click Save draft, so the clip lands in your TikTok drafts (not posted)
 caption_template = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
 max_uploads_per_day = 6
 min_minutes_between_uploads = 45

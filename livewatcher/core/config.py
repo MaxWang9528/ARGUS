@@ -83,6 +83,9 @@ class TikTok(_Model):
     cookies_file: str = ""
     headless: bool = False
     dry_run: bool = True
+    # What a dry run does at the end: "stop" before Post (screenshot only), or "draft":
+    # click Save draft, so the clip lands in TikTok's drafts but is never posted.
+    dry_run_mode: Literal["stop", "draft"] = "stop"
     caption_template: str = "{streamer} on Twitch 🔴 #{streamer} #twitch #clips"
     max_uploads_per_day: int = 6
     min_minutes_between_uploads: int = 45

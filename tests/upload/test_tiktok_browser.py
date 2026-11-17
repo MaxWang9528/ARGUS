@@ -187,6 +187,8 @@ class FakeLocator:
         self.page.clicks.append(self.k)
         if self.k in self.page.post_keys and self.page.post_shows_success:
             self.page.show("success")
+        if self.k in self.page.click_shows:
+            self.page.show(self.page.click_shows[self.k])
 
     async def inner_text(self):
         return self.page.editor_text
@@ -222,6 +224,7 @@ class FakePage:
         self.on_goto = lambda: self.show("file_input", hidden=True)
         self.after_attach = self.default_after_attach
         self.screenshots: list = []
+        self.click_shows: dict = {}  # locator key -> selector name to show when it's clicked
 
     @property
     def frames(self):
@@ -543,3 +546,62 @@ async def test_cancel_closes_the_browser(store, bus, browser, page, make_clip):
         await task
     assert browser.context.closed
     assert getattr(browser, "exited", False)
+
+
+# ---- dry run in "draft" mode: Save draft instead of stopping ----------------------------
+
+def _with_draft_button(page, *, saves=True):
+    base = page.after_attach
+
+    def after():
+        base()
+        page.show("draft_button", state={"disabled": False})
+    page.after_attach = after
+    if saves:
+        page.click_shows[key(SELECTORS["draft_button"][0])] = "draft_saved"
+
+
+async def test_draft_mode_saves_a_draft_and_never_posts(uploader, page, make_clip, store):
+    store.update({"tiktok": {"dry_run_mode": "draft"}})
+    _with_draft_button(page)
+    res = await uploader.upload(make_clip(), CAPTION, dry_run=True)
+    assert res.kind == "dry_run", res.error
+    assert page.clicks.count(key(SELECTORS["draft_button"][0])) == 1
+    assert not page.post_keys & set(page.clicks)
+    assert res.screenshot and "draft" in Path(res.screenshot).name
+
+
+async def test_stop_mode_never_clicks_save_draft(uploader, page, make_clip):
+    _with_draft_button(page)
+    res = await uploader.upload(make_clip(), CAPTION, dry_run=True)
+    assert res.kind == "dry_run", res.error
+    assert key(SELECTORS["draft_button"][0]) not in page.clicks
+
+
+async def test_draft_mode_without_draft_button_is_blocked(uploader, page, make_clip, store):
+    store.update({"tiktok": {"dry_run_mode": "draft"}})
+    res = await uploader.upload(make_clip(), CAPTION, dry_run=True)
+    assert res.kind == "blocked" and "draft button" in res.error
+    assert not page.post_keys & set(page.clicks)
+
+
+async def test_draft_without_confirmation_is_blocked_not_transient(uploader, page, make_clip, store):
+    store.update({"tiktok": {"dry_run_mode": "draft"}})
+    _with_draft_button(page, saves=False)
+    res = await uploader.upload(make_clip(), CAPTION, dry_run=True)
+    assert res.kind == "blocked" and "check TikTok's drafts" in res.error
+
+
+async def test_real_run_ignores_draft_mode(uploader, page, make_clip, store):
+    store.update({"tiktok": {"dry_run_mode": "draft"}})
+    _with_draft_button(page)
+    res = await uploader.upload(make_clip(), CAPTION, dry_run=False)
+    assert res.kind == "ok", res.error
+    assert key(SELECTORS["draft_button"][0]) not in page.clicks
+
+
+def test_dry_run_mode_is_validated(store):
+    import pytest as _pytest
+    from pydantic import ValidationError
+    with _pytest.raises(ValidationError):
+        store.update({"tiktok": {"dry_run_mode": "publish"}})

@@ -300,7 +300,10 @@ def _check_no_chat_data(page, server: DemoServer, shots: str | None) -> None:
     assert item.locator("video").count() == 1  # the video still plays, there's just no chart
     page.unroute("**/api/clips/*/rates")
     # A render that isn't video: "No preview", and no chart either.
-    Path(clip["renders"][clip["active_layout"]]).write_bytes(b"not a video")
+    # Served through a route, not by overwriting the file: the browser may replay the
+    # earlier, cached response for the same URL after a reload.
+    page.route("**/api/clips/*/video*", lambda route: route.fulfill(
+        status=200, content_type="video/mp4", body=b"not a video"))
     page.reload()
     item.locator(".no-preview").wait_for(timeout=10_000)
     empty.wait_for(timeout=10_000)

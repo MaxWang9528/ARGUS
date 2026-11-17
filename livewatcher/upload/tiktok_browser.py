@@ -2,7 +2,9 @@
 
 Safety rules this module keeps:
 - ``dry_run=True`` does everything except clicking Post. Every click that publishes
-  goes through ``_click_publishing``, which refuses to run in a dry run.
+  goes through ``_click_publishing``, which refuses to run in a dry run. With
+  ``tiktok.dry_run_mode = "draft"`` a dry run then clicks Save draft instead, so the
+  clip lands in TikTok's drafts, private and unposted.
 - It never logs in and never types credentials. A logged-out profile is ``blocked``.
 - A CAPTCHA, a verification prompt or a page that doesn't look as expected is
   ``blocked`` (never retried). Network trouble before Post is ``transient``.
@@ -78,6 +80,15 @@ SELECTORS: dict[str, list[Spec]] = {
     # is still running. Publishing click: real runs only.
     "post_now_button": [
         ("role", "button", "Post now"),
+    ],
+    # Save draft: used only by a dry run in "draft" mode. Never publishes.
+    "draft_button": [
+        ("role", "button", "Save draft"),
+        ("css", "button[data-e2e='save_draft_button']"),
+    ],
+    # After Save draft: the confirmation (or TikTok moves to the content list).
+    "draft_saved": [
+        ("text_re", r"draft (saved|has been saved)|saved (to|as|in) (your )?drafts?"),
     ],
     # After Post: the confirmation.
     "success": [
@@ -207,7 +218,7 @@ def classify_error(exc: BaseException, *, posted: bool = False) -> tuple[str, st
     """Map an unexpected exception to (UploadResult.kind, message)."""
     msg = f"{type(exc).__name__}: {str(exc).strip().splitlines()[0] if str(exc).strip() else ''}".rstrip(": ")
     if posted:
-        return "blocked", f"Post was clicked, then {msg}. Check TikTok before retrying."
+        return "blocked", f"Post or Save draft was clicked, then {msg}. Check TikTok before retrying."
     text = str(exc)
     if "error while loading shared libraries" in text or "Host system is missing dependencies" in text:
         return "blocked", ("the browser can't start: system libraries are missing "
@@ -380,7 +391,10 @@ class TikTokUploader:
         # 4. visibility is left at its default. Post, or stop here in a dry run.
         if dry_run:
             shot = await self._screenshot(run, "dry_run")
-            return UploadResult(kind="dry_run", screenshot=shot)
+            if self.store.get().tiktok.dry_run_mode != "draft":
+                return UploadResult(kind="dry_run", screenshot=shot)
+            await self._pause(1.0, 2.5)
+            return await self._save_draft(run, root)
         await self._pause(1.0, 2.5)
         await self._click_publishing(run, post_button, dry_run)
         return await self._wait_confirmed(run, root, dry_run)
@@ -455,6 +469,29 @@ class TikTokUploader:
             if self._monotonic() > deadline:
                 raise _Stop("blocked", "Post was clicked but no confirmation appeared; "
                                        "check TikTok before retrying")
+            await self._sleep(self.poll_s)
+
+    async def _save_draft(self, run: _Run, root: Any) -> UploadResult:
+        """Dry run in "draft" mode: click Save draft and wait for the confirmation.
+        After the click nothing is transient, so a retry can't make a second draft."""
+        page = run.page
+        button = await self._find(page, root, "draft_button")
+        if is_disabled(await self._button_state(button)):
+            raise _Stop("blocked", "the Save draft button is disabled after filling in the form")
+        run.posted = True  # an error from here on must not be retried
+        await button.click()
+        deadline = self._monotonic() + self.confirm_timeout_s
+        while True:
+            await self._check_blockers(page)
+            if (await self._present(root, "draft_saved") is not None
+                    or "/tiktokstudio/content" in (page.url or "")):
+                shot = await self._screenshot(run, "draft")
+                log.info("clip %s: saved to TikTok drafts (dry run)", run.clip.id,
+                         extra={"streamer": run.clip.streamer})
+                return UploadResult(kind="dry_run", screenshot=shot)
+            if self._monotonic() > deadline:
+                raise _Stop("blocked", "Save draft was clicked but no confirmation appeared; "
+                                       "check TikTok's drafts before retrying")
             await self._sleep(self.poll_s)
 
     async def _click_publishing(self, run: _Run, locator: Any, dry_run: bool) -> None:

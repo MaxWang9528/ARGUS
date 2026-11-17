@@ -146,7 +146,11 @@ You can re-render any clip in another layout from the Clips tab; each layout's f
   2. Wait for processing.
   3. Type the caption, then read it back to check it stuck.
   4. Click **Post**.
-- **`tiktok.dry_run = true` (the default)** stops right before Post and saves a screenshot to `upload_debug/`. The clip becomes `dry_run_ok`.
+- **`tiktok.dry_run = true` (the default)** never clicks Post. `tiktok.dry_run_mode` sets what happens instead; switch it in the Debug tab under Uploads:
+  - `"stop"` (default): stop on the filled-in form and save a screenshot to `upload_debug/`. Nothing reaches your account.
+  - `"draft"`: click **Save draft**, so the clip lands in your TikTok drafts, private and unposted, and you can post it from the TikTok app later. If no confirmation appears, the clip is marked `failed` and not retried, so it can't make duplicate drafts.
+
+  Either way the clip becomes `dry_run_ok`. Dry runs don't count toward the upload limits.
 - **Results:**
   - **blocked** (CAPTCHA, logged out, page changed, caption didn't stick) → `failed` with a screenshot. The whole queue pauses until you approve a clip by hand or change the config.
   - **transient** (network error, processing timeout) → retried up to 2 times.
@@ -194,7 +198,8 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | `capture.sync_offset_s` | `-2.0` | Chat-to-video offset (tune it live) |
 | `capture.quality` | `720p60,720p,best` | streamlink quality preference |
 | `render.default_layout` | `blur_fit` | `blur_fit`, `crop` or `stacked` |
-| `tiktok.dry_run` | `true` | Stop before Post |
+| `tiktok.dry_run` | `true` | Never click Post |
+| `tiktok.dry_run_mode` | `"stop"` | Dry run: `"stop"` before Post, or `"draft"` to save to TikTok drafts |
 | `tiktok.caption_template` | GTA 6 tags in the example | `{streamer}` is replaced |
 | `tiktok.max_uploads_per_day` / `min_minutes_between_uploads` | `6` / `45` | Upload limits |
 
@@ -221,7 +226,7 @@ Keep `data_dir` on the Linux filesystem, not `/mnt/c`: the buffer writes constan
 ## Before relying on it unattended
 
 1. **TikTok login:** run `./lw login-tiktok` once.
-2. **Selector check:** with `dry_run = true`, approve one clip and check the screenshot in `upload_debug/` shows a filled-in Post screen. TikTok changes its site; the selectors are all in `livewatcher/upload/tiktok_browser.py`.
+2. **Selector check:** with `dry_run = true`, approve one clip and check the screenshot in `upload_debug/` shows a filled-in Post screen. Then try `dry_run_mode = "draft"` and check the clip appears in your TikTok drafts. TikTok changes its site; the selectors are all in `livewatcher/upload/tiktok_browser.py`.
 3. **One real upload,** on purpose.
 4. **Sync:** tune `sync_offset_s` on a live stream.
 5. Then turn on auto-upload.

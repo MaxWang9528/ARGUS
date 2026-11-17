@@ -30,7 +30,7 @@
     </template>
   </nav>
   <div class="top-right">
-    <span class="chip warn" x-show="config && config.tiktok.dry_run" title="Uploads stop before the Post button">Dry run</span>
+    <span class="chip warn" x-show="config && config.tiktok.dry_run" :title="config?.tiktok.dry_run_mode === 'draft' ? 'Uploads are saved to TikTok drafts, never posted' : 'Uploads stop before the Post button'" x-text="config?.tiktok.dry_run_mode === 'draft' ? 'Dry run: drafts' : 'Dry run'">Dry run</span>
     <span class="chip" x-show="isDemo" title="Every part is a stand-in: no Twitch, no TikTok">Demo</span>
     <label class="switch header-switch" :class="{ on: autoUpload }">
       <input type="checkbox" role="switch" data-testid="auto-upload" :checked="autoUpload"
@@ -498,8 +498,18 @@
           <input type="checkbox" role="switch" data-testid="dry-run" :checked="!!config?.tiktok.dry_run" :disabled="!config"
                  @change="patchConfig({ tiktok: { dry_run: $event.target.checked } }, $event.target.checked ? 'Dry run is on' : 'Dry run is off: uploads will post')">
           <span class="track" aria-hidden="true"></span>
-          <span class="switch-label"><b>Dry run</b> <span class="muted">The uploader fills in TikTok's form and stops before Post, then saves a screenshot.</span></span>
+          <span class="switch-label"><b>Dry run</b> <span class="muted">The uploader fills in TikTok's form but never clicks Post. Choose what it does instead:</span></span>
         </label>
+        <div class="seg" role="group" aria-label="Dry run mode" data-testid="dry-run-mode" style="margin-top: 10px">
+          <template x-for="m in [{ id: 'stop', label: 'Stop before Post' }, { id: 'draft', label: 'Save to drafts' }]" :key="m.id">
+            <button type="button" :class="{ on: (config?.tiktok.dry_run_mode || 'stop') === m.id }" :disabled="!config"
+                    @click="patchConfig({ tiktok: { dry_run_mode: m.id } }, m.id === 'draft' ? 'Dry runs now save to TikTok drafts' : 'Dry runs now stop before Post')"
+                    x-text="m.label"></button>
+          </template>
+        </div>
+        <p class="help" x-text="(config?.tiktok.dry_run_mode || 'stop') === 'draft'
+          ? 'Clicks Save draft: the clip lands in your TikTok drafts, private and unposted. A screenshot is saved either way.'
+          : 'Stops on the filled-in form and saves a screenshot. Nothing reaches your TikTok account.'"></p>
       </div>
 
       <div class="card panel">
