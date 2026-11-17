@@ -7,7 +7,7 @@ auto_upload = false            # also switchable from the dashboard
 dashboard_host = "127.0.0.1"
 dashboard_port = 8787
 max_concurrent_renders = 1
-retention_days = 7             # delete old raw and rendered clips
+retention_days = 7             # delete raw and rendered clip files older than this (0 = keep)
 
 [twitch]                       # optional: Helix keys for faster live checks and titles
 client_id = ""
@@ -35,7 +35,8 @@ buffer_minutes = 3
 snapshot_interval_s = 2
 low_latency = true
 filter_ads = true
-sync_offset_s = 0.0            # signed seconds; a positive number moves clips later
+sync_offset_s = -2.0           # signed seconds; a positive number moves clips later.
+                               # -2.0 is an estimate of viewer delay; tune it on a live stream
 
 [render]
 default_layout = "blur_fit"    # blur_fit, crop or stacked

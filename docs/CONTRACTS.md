@@ -2,6 +2,8 @@
 
 FROZEN after Phase 0. If you need a change, describe it in your report and work around it in your own files.
 
+Phase 2 (integration) made the additions marked **(Phase 2)** below.
+
 The code is the source of truth for shapes: `livewatcher/core/models.py`, `interfaces.py`, `config.py`, `events.py`, `db.py`. This file adds the conventions the code can't show.
 
 ## Running things
@@ -22,7 +24,7 @@ Every timestamp is chat wall-clock time: UTC epoch seconds (`time.time()`). Only
 | Chat | `livewatcher.chat.twitch_irc:TwitchChatSource` | `store, bus` |
 | Detector | `livewatcher.detect.peak:ChatPeakDetector` | `store, bus` |
 | Recorder | `livewatcher.capture.recorder:Recorder` | `store, bus` |
-| Cutter | `livewatcher.capture.cutter:Cutter` | `store, bus, recorder` |
+| Cutter | `livewatcher.capture.cutter:Cutter` | `store, bus, recorder` **(Phase 2)** the real `Recorder`: it also calls `recorder.buffer_index(name)` and `recorder.buffer_dir(name)`, which are not in the `StreamRecorder` protocol, and raises `WindowUnavailable` without them |
 | Renderer | `livewatcher.render.renderer:FfmpegRenderer` | `store, bus` |
 | Uploader | `livewatcher.upload.tiktok_browser:TikTokUploader` | `store, bus` |
 | Upload queue | `livewatcher.upload.queue:ClipUploadQueue` | `store, bus, db, uploader` |
@@ -42,6 +44,7 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 | `livewatcher.db` | core | SQLite database |
 | `buffer/<streamer>/` | B | rolling segments and `live.m3u8` |
 | `snapshots/<streamer>.jpg` | B | latest frame, replaced atomically |
+| `clips/tmp/<clip_id>/` | B | cut scratch (hard links into `buffer/`, so it must share its filesystem) |
 | `clips/raw/<clip_id>.mp4` | B | cut clip, source aspect ratio |
 | `clips/out/<clip_id>_<layout>.mp4` | C | 1080x1920 render |
 | `chatlogs/<streamer>/<YYYY-MM-DD>.jsonl` | A | one `ChatMessage` JSON per line |
@@ -56,12 +59,15 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 | `clip` | `Clip`, on every status change | core, D |
 | `stream_status` | `StreamStatus`, on change and at least every 30 s | B |
 | `snapshot` | `{"streamer", "ts"}` | B |
-| `config_changed` | `{"patch"}` | core |
+| `config_changed` | `{"patch"}` (the WebSocket blanks `twitch.client_secret` in it) **(Phase 2)** | core |
 | `log` | `LogLine` | core (see below) |
 
 **Logging:** use `logging.getLogger("livewatcher.<area>")`. The app forwards those records to the `log` topic. Tag a line with `extra={"streamer": name}`.
 
 **Clips:** after changing a clip, always `db.save_clip(clip)` then `bus.publish(Topic.CLIP, clip)`.
+
+## Retention (Phase 2)
+Every hour the app deletes the raw, rendered and screenshot files of clips older than `general.retention_days` (0 keeps everything), except clips still in progress. The clip row stays, with its file paths cleared. `clips/tmp/` folders older than a day go too. Chat logs are kept.
 
 ## Clip life cycle
 `waiting -> cutting -> rendering -> pending_review | queued -> uploading -> uploaded | dry_run_ok | failed`, plus `rejected` and `dropped`.
@@ -74,13 +80,13 @@ JSON bodies are the pydantic models dumped with `model_dump(mode="json")`. Error
 
 | Method and path | Does | Backed by |
 |---|---|---|
-| `GET /api/state` | `{auto_upload, dry_run, components, streamers:[{name, enabled, status: StreamStatus, has_playlist}]}` | `app.store`, `app.recorder.status`, `app.components` |
+| `GET /api/state` | `{auto_upload, dry_run, components, streamers:[{name, enabled, status: StreamStatus, has_playlist, has_snapshot}]}` (`has_snapshot` **Phase 2**) | `app.store`, `app.recorder.status`, `app.components` |
 | `GET /api/streamers/{name}/rates` | `RateSample[]`, up to 15 min | `app.rate_history` |
 | `GET /api/streamers/{name}/snapshot.jpg` | latest frame (404 if none), `Cache-Control: no-store` | `app.recorder.snapshot_path` |
-| `GET /api/streamers/{name}/live/{file}` | `live.m3u8` and its segments (404 if no playlist) | `app.recorder.playlist_path` (serve only files in that folder) |
+| `GET /api/streamers/{name}/live/{file}` | `live.m3u8` (always the recorder's playlist, whatever its file name) and its segments (404 if no playlist) | `app.recorder.playlist_path` (serve only files in that folder) |
 | `GET /api/streamers/{name}/layout-preview.jpg?layout=&crop_x=&fit_zoom=&stack_top=x,y,w,h&stack_bottom=x,y,w,h&stack_split=` | snapshot with regions drawn; query values override the config | `app.renderer.preview` |
 | `POST /api/streamers/{name}/clip-now` | `Clip` | `app.clips.clip_now` |
-| `GET /api/peaks?streamer=&since=` | `PeakEvent[]` | `app.db.list_peaks` |
+| `GET /api/peaks?streamer=&since=&limit=` (`limit` **Phase 2**, default 200, max 2000) | `PeakEvent[]` | `app.db.list_peaks` |
 | `GET /api/clips?status=a,b&streamer=&limit=` | `Clip[]`, newest first | `app.db.list_clips` |
 | `GET /api/clips/{id}` | `Clip` | `app.db.get_clip` |
 | `GET /api/clips/{id}/video?layout=` | rendered mp4 (default: active layout), supports Range | `clip.renders` |

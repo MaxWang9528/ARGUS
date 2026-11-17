@@ -64,7 +64,7 @@ class Capture(_Model):
     snapshot_interval_s: float = 2
     low_latency: bool = True
     filter_ads: bool = True
-    sync_offset_s: float = 0.0  # signed; + moves clips later in the buffer
+    sync_offset_s: float = -2.0  # signed; + moves clips later. -2.0 is an estimate: tune it live
 
 
 class Render(_Model):

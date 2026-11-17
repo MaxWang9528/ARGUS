@@ -8,6 +8,14 @@ import pytest
 T0 = 1_800_000_000.0  # Twitch date of the first fake segment
 
 
+@pytest.fixture(autouse=True)
+def _zero_sync_offset(store):
+    """These tests check buffer and cut arithmetic, which they write for an offset of 0.
+    The shipped default (-2.0, an estimate of viewer delay) is a tuning value, not part
+    of what is under test. Tests that check the offset set it themselves."""
+    store.update({"capture": {"sync_offset_s": 0.0}})
+
+
 @pytest.fixture(scope="session")
 def sample_segments(sample_video: Path, tmp_path_factory: pytest.TempPathFactory) -> list[Path]:
     """The 12 s sample video split into six 2 s MPEG-TS segments, like Twitch's

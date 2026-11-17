@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import shutil
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 from .core import fakes
@@ -276,7 +278,75 @@ class App:
         server = uvicorn.Server(uvicorn.Config(
             create_app(self), host=g.dashboard_host, port=g.dashboard_port, log_level="warning"))
         print(f"Dashboard: http://{g.dashboard_host}:{g.dashboard_port}")
-        await server.serve()
+        task = asyncio.create_task(server.serve())
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Cancelling serve() directly makes uvicorn's lifespan print a traceback.
+            server.should_exit = True
+            await task
+            raise
+
+    # ---- retention -----------------------------------------------------------
+    RETENTION_EVERY_S = 3600.0
+    _BUSY = (ClipStatus.WAITING, ClipStatus.CUTTING, ClipStatus.RENDERING,
+             ClipStatus.QUEUED, ClipStatus.UPLOADING)
+
+    def cleanup(self, now: float | None = None) -> int:
+        """Delete clip files older than ``general.retention_days`` (0 keeps everything).
+
+        A clip in progress keeps its files. The clip row stays in the database with its
+        file paths cleared, so the history (and the peak log's links) survive. Leftover
+        cut scratch folders older than a day go too. Returns the number of files deleted.
+        """
+        cfg = self.store.get()
+        days = cfg.general.retention_days
+        if days <= 0:
+            return 0
+        now = time.time() if now is None else now
+        cutoff = now - days * 86400
+        clips_dir = (cfg.data_dir / "clips").resolve()
+        removed = 0
+
+        def drop(path: str | None) -> None:
+            nonlocal removed
+            if not path:
+                return
+            p = Path(path).resolve()
+            if not p.is_relative_to(cfg.data_dir.resolve()):
+                return  # never delete outside data_dir
+            try:
+                p.unlink()
+                removed += 1
+            except FileNotFoundError:
+                pass
+
+        for clip in self.db.list_clips(limit=1_000_000, oldest_first=True):
+            if clip.created_at >= cutoff:
+                break
+            if clip.status in self._BUSY or not (clip.raw_path or clip.renders or clip.debug_screenshot):
+                continue
+            for path in (clip.raw_path, *clip.renders.values(), clip.debug_screenshot):
+                drop(path)
+            clip.raw_path, clip.renders, clip.debug_screenshot = None, {}, None
+            self.db.save_clip(clip)
+            self.bus.publish(Topic.CLIP, clip)
+        tmp = clips_dir / "tmp"
+        if tmp.is_dir():
+            for d in tmp.iterdir():
+                if d.stat().st_mtime < now - 86400:
+                    shutil.rmtree(d, ignore_errors=True)
+        if removed:
+            log.info("retention: deleted %d clip files older than %d days", removed, days)
+        return removed
+
+    async def _retention(self) -> None:
+        while True:
+            try:
+                self.cleanup()  # a few unlinks; publishes on the bus, so stays on the loop
+            except Exception:
+                log.exception("retention cleanup failed")
+            await asyncio.sleep(self.RETENTION_EVERY_S)
 
     async def run(self) -> None:
         handler = BusLogHandler(self.bus, asyncio.get_running_loop())
@@ -284,7 +354,7 @@ class App:
         root.addHandler(handler)
         root.setLevel(logging.INFO)
         jobs = [self._collect(), self.clips.run(), self.chat.run(), self.detector.run(),
-                self.recorder.run(), self.upload_queue.run()]
+                self.recorder.run(), self.upload_queue.run(), self._retention()]
         if self.serve:
             jobs.append(self._serve())
         try:
