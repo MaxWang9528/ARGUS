@@ -1,5 +1,10 @@
 """The recorder: one capture worker process per live, enabled streamer.
 
+With ``general.max_streamers`` > 0 only the top N live streamers are recorded (see
+``pick_watched``: category first, then viewers, with a 20 % hysteresis). The others
+get ``StreamStatus.watched = False``, no worker and no buffer; a streamer that drops
+out of the top N has its worker stopped and its buffer deleted.
+
 Pipeline (per streamer)
 -----------------------
 ``python -m livewatcher.capture.recorder worker --channel <name> --out <dir> ...``
@@ -82,6 +87,46 @@ def _capture_key(cfg: Config) -> tuple:
     return (c.quality, c.low_latency, c.filter_ads)
 
 
+DISPLACE_RATIO = (6, 5)  # a challenger needs >= 6/5 (120 %) of a watched streamer's viewers
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A live, enabled streamer as the ranking sees it."""
+    name: str
+    category: str = ""
+    viewers: int | None = None
+
+
+def pick_watched(candidates: Iterable[Candidate], watched: Iterable[str], limit: int,
+                 categories: Iterable[str]) -> list[str]:
+    """``general.max_streamers``: which live streamers to record, best first.
+
+    Rank: category in ``categories`` (case-insensitive) first, then viewers, highest
+    first, ``None`` last. ``limit`` 0 keeps everyone. Hysteresis: a streamer in
+    ``watched`` (picked last time) keeps its slot against a challenger in the same
+    category tier unless the challenger has at least 20 % more viewers. A challenger
+    with a known count beats one with ``None``; two ``None`` never swap."""
+    cands = list(candidates)
+    if limit <= 0:
+        return [c.name for c in cands]
+    wanted = {c.strip().lower() for c in categories if c.strip()}
+    held = {w.lower() for w in watched}
+    num, den = DISPLACE_RATIO
+
+    def key(c: Candidate) -> tuple:
+        tier = 0 if c.category.strip().lower() in wanted else 1
+        inc = c.name in held
+        if c.viewers is None:
+            return (tier, 1, 0 if inc else 1, 0, c.name)
+        # Compare challenger*den against incumbent*num: incumbents count num/den times.
+        eff = c.viewers * (num if inc else den)
+        # At exactly +20 % the challenger wins (it sorts first on a tie).
+        return (tier, 0, -eff, 1 if inc else 0, c.name)
+
+    return [c.name for c in sorted(cands, key=key)[:limit]]
+
+
 @dataclass
 class _Stream:
     name: str
@@ -91,6 +136,11 @@ class _Stream:
     live: bool = False
     title: str = ""
     category: str = ""
+    viewers: int | None = None
+    # max_streamers: ``watched`` is False only while live and outside the top N.
+    # ``picked`` is True while live and holding a slot (for the hysteresis).
+    watched: bool = True
+    picked: bool = False
     state: str = "stopped"
     last_error: str = ""
     proc: asyncio.subprocess.Process | None = None
@@ -145,6 +195,7 @@ class Recorder:
         start, end = st.index.start, st.index.end
         return StreamStatus(
             streamer=name, live=st.live or st.state == "recording", title=st.title, category=st.category,
+            viewers=st.viewers, watched=st.watched,
             recorder_state=st.state,  # type: ignore[arg-type]
             buffer_start=None if start is None else start - off,
             buffer_end=None if end is None else end - off,
@@ -171,6 +222,8 @@ class Recorder:
             raise WindowUnavailable("the buffer restarted after the window ended")
         if idx.covers_until(target):
             return True
+        if not st.watched:
+            raise WindowUnavailable(f"{name} is outside max_streamers and is not recorded")
         if st.proc is None and not st.live:
             raise WindowUnavailable(f"{name} went offline before the window was recorded")
         return False
@@ -247,6 +300,15 @@ class Recorder:
             if enabled:
                 self._check_task = asyncio.create_task(self._live_check(enabled))
 
+        # max_streamers: free the slots of dropped streamers before starting new ones.
+        for name in enabled:
+            st = self._stream(name)
+            if not st.watched and (st.proc is not None or st.index.segments):
+                if st.proc is not None:
+                    log.info("outside max_streamers: no longer recorded", extra={"streamer": name})
+                    await self._stop(st, "outside max_streamers")
+                self._drop_buffer(st)
+
         for name in enabled:
             st = self._stream(name)
             running = st.proc is not None
@@ -262,7 +324,7 @@ class Recorder:
                 await self._stop(st, "hung")
                 self._failed(st)
                 running = False
-            if st.live and not running and now >= st.next_start:
+            if st.live and st.watched and not running and now >= st.next_start:
                 await self._start(st, cfg)
             self._publish(st)
 
@@ -270,7 +332,8 @@ class Recorder:
             if name not in enabled:
                 if st.proc is not None:
                     await self._stop(st, "disabled")
-                st.live, st.title, st.category = False, "", ""
+                st.live, st.title, st.category, st.viewers = False, "", "", None
+                st.watched, st.picked = True, False
                 if st.state != "stopped":
                     st.state = "stopped"
                 self._publish(st)
@@ -288,6 +351,7 @@ class Recorder:
             if info.error:
                 log.debug("live check error: %s", info.error, extra={"streamer": name})
                 continue  # keep the previous answer
+            st.viewers = info.viewers if info.live else None
             if info.live != st.live:
                 log.info("%s is %s", name, "live" if info.live else "offline", extra={"streamer": name})
                 if info.live:
@@ -301,7 +365,39 @@ class Recorder:
                 st.category = info.category
             if not info.live and st.proc is None and st.state in ("error", "starting"):
                 st.state = "stopped"
-            self._publish(st)
+        self._select()
+        for name in results:
+            self._publish(self._stream(name))
+
+    def _select(self) -> None:
+        """Apply ``general.max_streamers`` to the latest live answers (see ``pick_watched``).
+        ``_tick`` then stops the dropped and starts the picked."""
+        cfg = self.store.get()
+        enabled = [s.name.lower() for s in cfg.enabled_streamers()]
+        live = [self._stream(n) for n in enabled if self._stream(n).live]
+        picked = set(pick_watched(
+            [Candidate(st.name, st.category, st.viewers) for st in live],
+            [st.name for st in live if st.picked],
+            cfg.general.max_streamers, cfg.general.clip_categories))
+        for name in enabled:
+            st = self._stream(name)
+            was = st.watched
+            st.picked = st.live and st.name in picked
+            st.watched = st.picked or not st.live
+            if st.live and was != st.watched:
+                if st.watched:
+                    log.info("in the top %d: recording (%s viewers)", cfg.general.max_streamers,
+                             st.viewers if st.viewers is not None else "unknown",
+                             extra={"streamer": name})
+                else:
+                    log.info("outside the top %d (max_streamers): not recorded (%s viewers)",
+                             cfg.general.max_streamers,
+                             st.viewers if st.viewers is not None else "unknown",
+                             extra={"streamer": name})
+
+    def _drop_buffer(self, st: _Stream) -> None:
+        shutil.rmtree(st.dir, ignore_errors=True)
+        st.index.reset()
 
     # ---- one pipeline ------------------------------------------------------------
     async def _start(self, st: _Stream, cfg: Config) -> None:
@@ -478,7 +574,8 @@ class Recorder:
 
     def _publish(self, st: _Stream, *, force: bool = False) -> None:
         status = self.status(st.name)
-        key = (status.live, status.recorder_state, status.title, status.category, status.last_error)
+        key = (status.live, status.recorder_state, status.title, status.category, status.viewers,
+               status.watched, status.last_error)
         rng = (status.buffer_start, status.buffer_end)
         now = time.time()
         if (force or key != st.last_pub_key or now - st.last_pub >= STATUS_EVERY_S

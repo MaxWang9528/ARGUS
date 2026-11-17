@@ -13,7 +13,14 @@ import pytest
 
 from livewatcher.capture import recorder as rec_mod
 from livewatcher.capture.live_check import LiveInfo
-from livewatcher.capture.recorder import Recorder, _Emitter, pick_quality, store_segment
+from livewatcher.capture.recorder import (
+    Candidate,
+    Recorder,
+    _Emitter,
+    pick_quality,
+    pick_watched,
+    store_segment,
+)
 from livewatcher.core.config import ConfigStore
 from livewatcher.core.events import EventBus, Topic
 from livewatcher.core.interfaces import StreamRecorder, WindowUnavailable
@@ -22,13 +29,18 @@ FAKE_WORKER = str(Path(__file__).with_name("fake_worker.py"))
 
 
 class FakeLive:
-    def __init__(self, live: set[str]):
+    def __init__(self, live: set[str], viewers: dict[str, int | None] | None = None,
+                 categories: dict[str, str] | None = None):
         self.live = set(live)
+        self.viewers = dict(viewers or {})
+        self.categories = dict(categories or {})
         self.calls = 0
 
     async def check(self, names):
         self.calls += 1
-        return {n: LiveInfo(live=n in self.live, title=f"{n} stream", method="fake") for n in names}
+        return {n: LiveInfo(live=n in self.live, title=f"{n} stream", method="fake",
+                            viewers=self.viewers.get(n), category=self.categories.get(n, ""))
+                for n in names}
 
 
 def argv_for(*extra: str, seg_dur: float = 0.1):
@@ -222,6 +234,122 @@ async def test_ad_gap_reaches_the_index(store: ConfigStore, bus: EventBus) -> No
         with pytest.raises(WindowUnavailable, match="gap"):
             idx.select(g0 - 0.05, g1 + 0.05)
         assert "#EXT-X-DISCONTINUITY" in rec.playlist_path("alpha").read_text()
+
+
+# ---- max_streamers ------------------------------------------------------------------
+
+def C(name: str, viewers: int | None, category: str = "") -> Candidate:
+    return Candidate(name, category, viewers)
+
+
+def test_pick_ranks_by_viewers_none_last() -> None:
+    cands = [C("a", 100), C("b", None), C("c", 300), C("d", 200)]
+    assert pick_watched(cands, [], 3, []) == ["c", "d", "a"]
+    assert pick_watched(cands, [], 10, []) == ["c", "d", "a", "b"]
+    assert pick_watched([C("x", None), C("y", None)], [], 1, []) == ["x"]  # stable by name
+
+
+def test_pick_category_first() -> None:
+    cands = [C("big", 90_000, "Just Chatting"), C("gta", 50, "grand theft auto vi"),
+             C("gta2", None, "Grand Theft Auto VI"), C("mid", 5_000, "DayZ")]
+    got = pick_watched(cands, [], 3, ["Grand Theft Auto VI"])
+    assert got == ["gta", "gta2", "big"]
+    # category beats hysteresis: a watched non-GTA streamer loses to any GTA one
+    assert pick_watched(cands, ["big", "mid"], 2, ["Grand Theft Auto VI"]) == ["gta", "gta2"]
+    # no categories configured: viewers only
+    assert pick_watched(cands, [], 2, []) == ["big", "mid"]
+
+
+def test_pick_hysteresis() -> None:
+    # watched "a" (1000) keeps its slot against +19 %, loses at exactly +20 %
+    assert pick_watched([C("a", 1000), C("b", 1190)], ["a"], 1, []) == ["a"]
+    assert pick_watched([C("a", 1000), C("b", 1200)], ["a"], 1, []) == ["b"]
+    # no flip-flop: once "b" holds the slot, "a" needs +20 % on it
+    assert pick_watched([C("a", 1000), C("b", 1200)], ["b"], 1, []) == ["b"]
+    # without a holder, plain ranking
+    assert pick_watched([C("a", 1000), C("b", 1190)], [], 1, []) == ["b"]
+    # a known count beats a watched None; two None never swap
+    assert pick_watched([C("a", None), C("b", 1)], ["a"], 1, []) == ["b"]
+    assert pick_watched([C("b", None), C("a", None)], ["b"], 1, []) == ["b"]
+    # several slots: only the weakest holder is at risk
+    cands = [C("a", 1000), C("b", 500), C("c", 590), C("d", 610)]
+    assert pick_watched(cands, ["a", "b"], 2, []) == ["a", "d"]
+    assert pick_watched(cands[:3], ["a", "b"], 2, []) == ["a", "b"]
+
+
+def test_pick_max_zero_keeps_everyone() -> None:
+    cands = [C("a", 1), C("b", None), C("c", 3)]
+    assert sorted(pick_watched(cands, [], 0, ["x"])) == ["a", "b", "c"]
+
+
+async def test_max_streamers_records_only_the_top(store: ConfigStore, bus: EventBus) -> None:
+    store.update({"general": {"max_streamers": 1},
+                  "streamers": [{"name": "alpha"}, {"name": "beta"}]})
+    live = FakeLive({"alpha", "beta"}, viewers={"alpha": 1000, "beta": 500})
+    rec = Recorder(store=store, bus=bus, live_checker=live, worker_argv=argv_for())
+    sub = bus.subscribe(Topic.STREAM_STATUS)
+    async with running(rec):
+        await until(lambda: rec.status("alpha").recorder_state == "recording")
+        await asyncio.sleep(0.3)
+        b = rec.status("beta")
+        assert b.live and not b.watched and b.viewers == 500 and b.recorder_state == "stopped"
+        assert rec._streams["beta"].proc is None and not rec.buffer_dir("beta").exists()
+        assert rec.status("alpha").watched and rec.status("alpha").viewers == 1000
+        with pytest.raises(WindowUnavailable, match="max_streamers"):
+            rec.window_ready("beta", time.time())
+        pid = rec._streams["alpha"].proc.pid
+
+        # +19 %: alpha keeps its slot
+        live.viewers["beta"] = 1190
+        calls = live.calls
+        rec.request_live_check()
+        await until(lambda: live.calls > calls and rec.status("beta").viewers == 1190)
+        await asyncio.sleep(0.2)
+        assert rec._streams["alpha"].proc is not None and rec._streams["alpha"].proc.pid == pid
+        assert not rec.status("beta").watched
+
+        # +20 %: beta takes over, alpha's worker stops and its buffer goes
+        live.viewers["beta"] = 1200
+        rec.request_live_check()
+        await until(lambda: rec.status("beta").recorder_state == "recording")
+        a = rec.status("alpha")
+        assert a.live and not a.watched and a.recorder_state == "stopped"
+        assert rec._streams["alpha"].proc is None
+        assert not rec.buffer_dir("alpha").exists() and rec.playlist_path("alpha") is None
+        await until(lambda: not alive(pid), timeout=3)
+
+        # a GTA stream outranks everyone regardless of viewers
+        store.update({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
+        live.categories["alpha"] = "Grand Theft Auto VI"
+        rec.request_live_check()
+        await until(lambda: rec.status("alpha").recorder_state == "recording")
+        assert not rec.status("beta").watched and rec._streams["beta"].proc is None
+
+        # offline: viewers unknown, and watched again (nothing to be outside of)
+        live.live.discard("beta")
+        rec.request_live_check()
+        await until(lambda: not rec.status("beta").live)
+        assert rec.status("beta").viewers is None and rec.status("beta").watched
+    seen = []
+    while not sub.queue.empty():
+        seen.append(sub.queue.get_nowait()[1])
+    assert any(s.streamer == "beta" and s.viewers == 1190 for s in seen)
+    assert any(s.streamer == "alpha" and not s.watched for s in seen)
+
+
+async def test_max_streamers_zero_records_everyone(store: ConfigStore, bus: EventBus) -> None:
+    store.update({"general": {"max_streamers": 0},
+                  "streamers": [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}]})
+    live = FakeLive({"alpha", "beta", "gamma"}, viewers={"alpha": 1, "beta": None, "gamma": 3})
+    rec = Recorder(store=store, bus=bus, live_checker=live, worker_argv=argv_for())
+    async with running(rec):
+        await until(lambda: all(rec.status(n).recorder_state == "recording" for n in ("alpha", "beta", "gamma")))
+        assert all(rec.status(n).watched for n in ("alpha", "beta", "gamma"))
+        # lowering the limit takes effect at the next check (config changes trigger one)
+        store.update({"general": {"max_streamers": 2}})
+        await until(lambda: rec._streams["beta"].proc is None and not rec.status("beta").watched)
+        assert rec.status("alpha").recorder_state == "recording"
+        assert rec.status("gamma").recorder_state == "recording"
 
 
 async def test_not_running_raises(store: ConfigStore, bus: EventBus) -> None:
