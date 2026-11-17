@@ -674,7 +674,7 @@ def test_clip_scores_and_queue_order(server: DemoServer, browser) -> None:
     fakes = [
         clip("demo_alpha", "queued", 3.1, 900),
         clip("demo_gamma", "queued", 8.24, 120),
-        clip("demo_alpha", "queued", 3.1, 1500),  # same score, older: before the other 3.1
+        clip("demo_alpha", "queued", 3.1, 1500),  # same score, older: after the other 3.1 (rank decays with age)
         clip("demo_beta", "queued", 0.0, 60, peak_id=manual.id),
         clip("demo_gamma", "uploaded", 5.0, 4000, account="clips_main"),
         clip("demo_alpha", "dry_run_ok", 4.2, 5000, account="clips.alt"),
@@ -699,7 +699,7 @@ def test_clip_scores_and_queue_order(server: DemoServer, browser) -> None:
 
     items = page.locator("[data-testid=clip-item]")
     items.nth(3).wait_for()
-    want = [fakes[3]["id"], fakes[1]["id"], fakes[2]["id"], fakes[0]["id"]]
+    want = [fakes[3]["id"], fakes[1]["id"], fakes[0]["id"], fakes[2]["id"]]
     assert items.evaluate_all("cs => cs.map(c => c.dataset.id)") == want
     scores = [items.nth(i).locator("[data-testid=clip-score]").inner_text() for i in range(4)]
     assert scores == ["manual", "8.2× chat", "3.1× chat", "3.1× chat"]

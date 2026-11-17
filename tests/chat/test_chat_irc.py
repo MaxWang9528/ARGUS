@@ -211,3 +211,28 @@ async def test_source_starts_the_chat_log(store, bus):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+def test_arrival_clock_restores_send_times_after_a_stall():
+    from argus.chat.twitch_irc import ArrivalClock, sent_ts
+    clock = ArrivalClock()
+    # Normal traffic: received 0.3 s after Twitch sent it, local clock 2 s ahead of Twitch.
+    for i in range(20):
+        sent = 1000.0 + i
+        assert abs(clock.stamp(sent + 2.3, sent) - (sent + 2.3)) < 1e-9
+    # A 30 s stall, then the backlog arrives at once: each keeps its own time.
+    stamped = [clock.stamp(1050.0, 1020.0 + i) for i in range(28)]
+    assert abs(stamped[0] - 1022.3) < 1e-9 and abs(stamped[-1] - 1049.3) < 1e-9
+    # No send time: the receive time.
+    assert clock.stamp(1060.0, None) == 1060.0
+    assert sent_ts(parse_line(REAL_PRIVMSG)) == 1700000000.123
+
+
+def test_arrival_clock_survives_a_stall_longer_than_its_window():
+    from argus.chat.twitch_irc import ArrivalClock
+    clock = ArrivalClock(window_s=60.0)
+    for i in range(20):
+        clock.stamp(1000.3 + i, 1000.0 + i)
+    # 90 s of nothing, then the backlog arrives at once.
+    stamped = [clock.stamp(1110.0, 1020.0 + i) for i in range(89)]
+    assert abs(stamped[0] - 1020.3) < 1e-9 and abs(stamped[-1] - 1108.3) < 1e-9

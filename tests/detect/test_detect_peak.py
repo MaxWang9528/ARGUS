@@ -273,3 +273,61 @@ def test_longer_sustain_needs_longer_chatter():
     det = Detection(min_sustain_s=20)
     assert run(chat_steady(spike(4.0, 600, [(400, 8, 30.0)])), 600, det)[1] == []
     assert len(run(chat_steady(spike(4.0, 600, [(400, 25, 30.0)])), 600, det)[1]) == 1
+
+
+# ---- stalls, late messages, rank ---------------------------------------------------------
+def test_stall_then_flush_by_receive_time_gives_no_peak():
+    # Busy chat (8 msg/s); the connection stalls for 30 s, then the backlog lands in one
+    # second (receive times). That burst is not a moment.
+    msgs = [m for m in chat([8.0] * 700) if not T0 + 400 <= m.ts < T0 + 430]
+    backlog = [m.model_copy(update={"ts": T0 + 430 + (m.ts - T0 - 400) / 300})
+               for m in chat([8.0] * 700, seed=2) if T0 + 400 <= m.ts < T0 + 430]
+    _, peaks = run(msgs + backlog, 700)
+    assert peaks == []
+    # ... while the same chat without the stall still finds a real spike afterwards.
+    _, peaks = run(msgs + backlog + chat(spike(0.0, 700, [(600, 12, 50.0)]), seed=3), 700)
+    assert len(peaks) == 1 and peaks[0].ts_start > T0 + 590
+
+
+def test_gap_bins_stay_out_of_the_baseline():
+    msgs = [m for m in chat([8.0] * 700) if not T0 + 400 <= m.ts < T0 + 460]
+    samples, _ = run(msgs, 700)
+    after = [s for s in samples if T0 + 480 <= s.ts <= T0 + 500]
+    assert all(s.baseline > 6 for s in after)  # 60 s of zeros did not drag it down
+
+
+def test_messages_from_long_closed_bins_are_dropped():
+    tr = PeakTracker("alpha")
+    tr.tick(T0 + 100, DET)
+    old = ChatMessage(streamer="alpha", ts=T0 + 60, user_id="1", user="x", text="hi")
+    recent = ChatMessage(streamer="alpha", ts=T0 + 98.5, user_id="2", user="y", text="hi")
+    assert tr.feed(old, DET) is False and tr.dropped_late == 1
+    assert tr.feed(recent, DET) is True  # a little late: still counted
+
+
+def test_laughter_outranks_a_vote_of_the_same_size():
+    def peak_with(text):
+        rates = spike(4.0, 600, [(400, 12, 30.0)])
+        base = [m for m in chat(rates) if not T0 + 400 <= m.ts < T0 + 412]
+        burst = [m for m in chat(rates, text=text) if T0 + 400 <= m.ts < T0 + 412]
+        _, peaks = run(base + burst, 600)
+        assert len(peaks) == 1
+        return peaks[0]
+
+    laugh, vote = peak_with("LMAOOO no way"), peak_with("1")
+    assert abs(laugh.score - vote.score) < 0.5
+    assert laugh.reaction > 0.6 and vote.reaction < 0.2  # the background chat says LUL
+    assert laugh.rank > 2.5 * vote.rank
+    assert laugh.chatters >= 50
+
+
+def test_text_classifiers():
+    from argus.detect.peak import ANSWER, REACTION
+    for t in ["LMAOOO", "lol", "KEKW", "no wayyy", "WTF", "???", "HAHAHA", "OMEGALUL", "clip it", "💀"]:
+        assert REACTION.search(t), t
+    for t in ["what addon is this", "hello there friend", "1 more game", "lollipop"]:
+        assert not REACTION.search(t), t
+    for t in ["1", "yes", "NO", "o7", "gg", "bye!", "wsg"]:
+        assert ANSWER.match(t), t
+    for t in ["no shot", "gg that was insane", "123"]:
+        assert not ANSWER.match(t), t

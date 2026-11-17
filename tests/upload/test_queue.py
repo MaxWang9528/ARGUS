@@ -381,3 +381,16 @@ async def test_approval_during_a_blocked_upload_does_not_resume(store, bus, db, 
     bus.publish(Topic.CLIP, c)
     assert await q.step() is True
     assert q.paused_reason is None
+
+
+def test_priority_prefers_fresh_clips_and_falls_back_to_score():
+    from argus.core.models import Clip
+    from argus.upload.queue import priority
+    now = 1_800_000_000.0
+    old = Clip(streamer="a", window_start=0, window_end=1, rank=100, created_at=now - 3 * 3600)
+    fresh = Clip(streamer="a", window_start=0, window_end=1, rank=40, created_at=now - 600)
+    legacy = Clip(streamer="a", window_start=0, window_end=1, score=7, created_at=now)
+    assert priority(old, now, 1.5) == 25.0              # two half-lives
+    assert priority(fresh, now, 1.5) > priority(old, now, 1.5)
+    assert priority(old, now, 0) == 100                 # 0 = no decay
+    assert priority(legacy, now, 1.5) == 7              # made before ranks existed

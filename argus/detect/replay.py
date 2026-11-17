@@ -69,7 +69,8 @@ def main(args: argparse.Namespace) -> int:
     for p in sorted(peaks, key=lambda p: p.ts_start):
         print(f"{p.streamer:<16} start {_clock(p.ts_start)} UTC (+{p.ts_start - t0:7.1f} s)  "
               f"peak +{p.ts_peak - t0:7.1f} s  end +{p.ts_end - t0:7.1f} s  "
-              f"({p.ts_end - p.ts_start:4.1f} s)  score {p.score:5.1f}")
+              f"({p.ts_end - p.ts_start:4.1f} s)  score {p.score:5.1f}  "
+              f"rank {p.rank:6.1f}  react {p.reaction:4.0%}  chatters {p.chatters}")
     counted = sum(len(v) for v in samples.values())
     span = messages[-1].ts - t0
     print(f"{len(peaks)} peak(s) in {span / 60:.1f} min of chat, {len(messages)} messages, "

@@ -168,7 +168,8 @@ class ClipService:
         clip = Clip(
             streamer=peak.streamer, peak_id=peak.id, window_start=start, window_end=end,
             active_layout=cfg.layout_for(peak.streamer).layout,
-            caption=cfg.caption_for(peak.streamer, status.category), score=peak.score)
+            caption=cfg.caption_for(peak.streamer, status.category), score=peak.score,
+            rank=peak.rank)
         self._save(clip)
         self._spawn(self._process(clip))
         return clip

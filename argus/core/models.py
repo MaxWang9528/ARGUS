@@ -46,6 +46,11 @@ class PeakEvent(BaseModel):
     ts_peak: float         # when the rate was highest
     ts_end: float          # when it fell back (or hit max_clip_s)
     score: float = 0.0     # peak rate / baseline
+    # How clip-worthy it looks, for the upload queue: score * sqrt(chatters) * a factor
+    # from the chat text (laughter and shock raise it, votes and goodbyes lower it).
+    rank: float = 0.0
+    reaction: float = 0.0  # share of the peak's messages that are reactions (LOL, WTF, ???)
+    chatters: int = 0      # most unique chatters in one smoothing window during the peak
     source: Literal["auto", "manual"] = "auto"
 
 
@@ -91,7 +96,8 @@ class Clip(BaseModel):
     created_at: float = Field(default_factory=time.time)
     error: str = ""
     debug_screenshot: str | None = None
-    score: float = 0.0  # the peak's rate / baseline; ranks clips when upload slots are short
+    score: float = 0.0  # the peak's rate / baseline (shown on the dashboard)
+    rank: float = 0.0   # the peak's rank; orders the upload queue (0: older clip, use score)
     account: str = ""   # TikTok account it was (or is being) uploaded to
 
     @property

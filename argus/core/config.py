@@ -153,6 +153,9 @@ class TikTok(_Model):
     cycle_accounts: bool = False
     # A queued clip that hasn't found a slot within this many hours is dropped (0 = never).
     max_queue_age_h: float = Field(6, ge=0)
+    # Fresh clips beat old ones: a queued clip's rank halves every this many hours
+    # (0 = off, rank alone). Being early matters more than a slightly better old clip.
+    rank_half_life_h: float = Field(1.5, ge=0)
 
 
 class Region(_Model):

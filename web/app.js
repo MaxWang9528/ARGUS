@@ -995,12 +995,20 @@ document.addEventListener('alpine:init', () => {
       if (this.clipTab === 'queued') return list.sort((a, b) => this.queueRank(a, b));
       return list.sort((a, b) => b.created_at - a.created_at);
     },
-    // The upload queue's order: the one uploading now, then manual clips, then the
-    // highest score (peak rate / baseline), then the oldest.
+    // The upload queue's order (argus/upload/queue.py): the one uploading now, then
+    // manual clips, then the highest rank halved every rank_half_life_h hours of age,
+    // then the oldest.
+    queuePriority(c) {
+      const rank = c.rank || c.score || 0;
+      const half = this.config?.tiktok?.rank_half_life_h ?? 0;
+      if (!(half > 0)) return rank;
+      const ageH = Math.max(0, Date.now() / 1000 - c.created_at) / 3600;
+      return rank * 0.5 ** (ageH / half);
+    },
     queueRank(a, b) {
       return ((b.status === 'uploading') - (a.status === 'uploading'))
         || (this.isManual(b) - this.isManual(a))
-        || ((b.score || 0) - (a.score || 0))
+        || (this.queuePriority(b) - this.queuePriority(a))
         || (a.created_at - b.created_at);
     },
     isManual(c) { return this.peakFor(c)?.source === 'manual'; },
@@ -1010,7 +1018,9 @@ document.addEventListener('alpine:init', () => {
     },
     scoreTitle(c) {
       if (this.isManual(c)) return 'Clipped by hand: goes first in the upload queue';
-      return 'Peak chat rate divided by normal chat. Higher goes first when upload slots are short.';
+      return 'Peak chat rate divided by normal chat. When upload slots are short, clips go by rank: '
+        + 'this, how many people chatted and how much of it was laughter or shock (not votes or goodbyes), '
+        + 'counting fresher clips higher.';
     },
     showAccount(c) { return !!c.account && ['uploading', 'uploaded', 'dry_run_ok', 'failed'].includes(c.status); },
     accountText(c) {

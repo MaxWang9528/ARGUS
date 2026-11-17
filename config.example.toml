@@ -71,6 +71,7 @@ min_minutes_between_uploads = 45 # apply to the implicit "default" account, used
 cycle_accounts = false           # true: each upload goes to the next account with a free slot, in turn
                                  # false: always the first account (in list order) with a free slot
 max_queue_age_h = 6              # a queued clip with no free slot for this many hours is dropped (0 = never)
+rank_half_life_h = 1.5           # a queued clip's rank halves every this many hours, so fresh clips go first (0 = off)
 
 # Captions for particular categories (exact Twitch name, case-insensitive).
 # [[tiktok.category_captions]]

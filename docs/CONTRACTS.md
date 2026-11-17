@@ -122,7 +122,7 @@ The static dashboard is served from `web/` at `/`.
 ### Accounts (branch `feat/accounts`)
 - `cfg.tiktok_accounts()` gives the accounts with `browser_profile_dir` filled in. An empty `tiktok.accounts` means one implicit account, `default`, that uses the old `[tiktok]` profile, cookies and limits.
 - `Uploader.upload(clip, caption, dry_run, account=None)`: `account` picks the profile.
-- **Choosing the clip:** among `queued` clips, manual clips go first, then the highest `clip.score` (peak rate / baseline), then the oldest. A clip queued longer than `tiktok.max_queue_age_h` (0 = never) becomes `dropped` with "expired: no upload slot within N h".
+- **Choosing the clip:** among `queued` clips, manual clips go first, then the highest priority, then the oldest. Priority = `clip.rank` (or `clip.score`, peak rate / baseline, for clips made before ranks existed) halved every `tiktok.rank_half_life_h` hours of age (0 = no decay). `rank` = score * sqrt(peak unique chatters) * a chat-text factor (0.25 + 1.5 * reaction share - answer share, within 0.25-1.5; see `argus/detect/peak.py`). A clip queued longer than `tiktok.max_queue_age_h` (0 = never) becomes `dropped` with "expired: no upload slot within N h".
 - **Choosing the account:**
   - Candidates are the enabled accounts with a free slot: fewer than `max_uploads_per_day` real uploads in the last 24 h, and at least `min_minutes_between_uploads` since that account's last one.
   - With `tiktok.cycle_accounts` on, it takes the next candidate after the account used last (round robin); with it off, the first candidate in list order.

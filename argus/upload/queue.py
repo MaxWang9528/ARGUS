@@ -1,8 +1,9 @@
 """The upload queue: uploads ``queued`` clips one at a time, to one of the TikTok
 accounts, within each account's limits. See "Accounts" in docs/CONTRACTS.md.
 
-- **Which clip:** manual ("clip now") clips first, then the highest ``clip.score``, then
-  the oldest. A clip that has been queued for more than ``tiktok.max_queue_age_h`` hours
+- **Which clip:** manual ("clip now") clips first, then the highest ``priority``: the
+  clip's rank (``clip.rank``, or ``clip.score`` for clips made before ranks existed)
+  halved every ``tiktok.rank_half_life_h`` hours of age, then the oldest. A clip that has been queued for more than ``tiktok.max_queue_age_h`` hours
   (0 = never) is ``dropped``. The age counts from when the queue saw the clip become
   ``queued`` (a hand approval restarts it); clips already queued when the app starts
   count from the start.
@@ -71,6 +72,15 @@ class AccountSlot:
     next_free_ts: float | None     # when the next real upload is allowed; None = now, or
     #                                never (max_uploads_per_day = 0, see limit_reason)
     limit_reason: str | None       # why a real upload can't happen now; None = it can
+
+
+def priority(clip: Clip, now: float, half_life_h: float) -> float:
+    """The clip's rank, decayed by its age so a fresh moment beats an old one."""
+    rank = clip.rank or clip.score
+    if half_life_h <= 0:
+        return rank
+    age_h = max(0.0, now - clip.created_at) / 3600
+    return rank * 0.5 ** (age_h / half_life_h)
 
 
 def account_slot(account: TikTokAccount, db: Database, now: float) -> AccountSlot:
@@ -229,7 +239,8 @@ class ClipUploadQueue:
                          extra={"streamer": clip.streamer})
                 continue
             keep.append(clip)
-        keep.sort(key=lambda c: (not self.is_manual(c), -c.score, c.created_at))
+        half = cfg.tiktok.rank_half_life_h
+        keep.sort(key=lambda c: (not self.is_manual(c), -priority(c, now, half), c.created_at))
         return keep
 
     def is_manual(self, clip: Clip) -> bool:

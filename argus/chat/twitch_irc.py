@@ -6,6 +6,11 @@ part removed ones). It reconnects with exponential backoff and rejoins. ``run()`
 also runs the chat log recorder.
 
 ``parse_line`` and ``to_chat_message`` are pure functions.
+
+Message times: a message is stamped with Twitch's send time (``tmi-sent-ts``)
+moved onto the local clock by ``ArrivalClock``, not with the moment it arrived.
+They are the same thing until the connection (or this process) stalls: then the
+backlog arrives in one go, and receive times would turn it into a fake peak.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ JOIN_WINDOW_S = 10.0
 IDLE_TIMEOUT_S = 360.0     # Twitch sends PING about every 5 minutes
 STABLE_AFTER_S = 30.0      # a connection that lived this long resets the backoff
 BACKOFF_MIN_S, BACKOFF_MAX_S = 1.0, 60.0
+LATE_WARN_S = 5.0          # warn when chat arrives this much later than Twitch sent it
 
 
 # ---- pure parsing -----------------------------------------------------------------
@@ -114,6 +120,49 @@ def to_chat_message(line: IrcLine, ts: float) -> ChatMessage | None:
                        user=user, text=text)
 
 
+def sent_ts(line: IrcLine) -> float | None:
+    """Twitch's send time of a line (``tmi-sent-ts``, ms) in seconds, if it has one."""
+    raw = line.tags.get("tmi-sent-ts", "")
+    try:
+        return int(raw) / 1000.0 if raw else None
+    except ValueError:
+        return None
+
+
+class ArrivalClock:
+    """Puts Twitch's send times on the local clock.
+
+    The offset (local minus Twitch, plus the network delay) is the smallest
+    receive-minus-send seen over the last ``window_s``: a delayed message only
+    makes the difference bigger, so the minimum stays honest through a stall, and
+    a local clock change is followed within ``window_s``. The result is never
+    later than the receive time.
+    """
+
+    MAX_SKEW_S = 3600.0  # a send time this far off the local clock is ignored
+
+    def __init__(self, window_s: float = 60.0) -> None:
+        self.window_s = window_s
+        self._offsets: deque[tuple[float, float]] = deque()  # (receive time, offset), offsets rising
+        self._last_min: float | None = None  # the minimum before the window last ran empty
+
+    def stamp(self, received: float, sent: float | None) -> float:
+        if sent is None or abs(received - sent) > self.MAX_SKEW_S:
+            return received
+        offset = received - sent
+        while self._offsets and self._offsets[0][0] < received - self.window_s:
+            self._offsets.popleft()
+        if not self._offsets and self._last_min is not None:
+            # Nothing for window_s (a long stall): what arrives now is likely the
+            # backlog, so keep the last good offset rather than learning from it.
+            self._offsets.append((received, self._last_min))
+        while self._offsets and self._offsets[-1][1] >= offset:
+            self._offsets.pop()
+        self._offsets.append((received, offset))
+        self._last_min = self._offsets[0][1]
+        return min(received, sent + self._offsets[0][1])
+
+
 def backoff_delay(attempt: int, rng: random.Random | None = None) -> float:
     """1 s, 2 s, 4 s ... up to 60 s, with jitter (between half and the full delay)."""
     rng = rng or random
@@ -170,6 +219,8 @@ class TwitchChatSource:
         self._limiter = limiter or _JoinLimiter()
         self._sleep = sleep
         self._ws: Any = None
+        self._arrival = ArrivalClock()
+        self._late_logged = 0.0
         self._generation = 0
         self._joined: set[str] = set()
         self._wake = asyncio.Event()
@@ -245,7 +296,12 @@ class TwitchChatSource:
     async def _handle(self, ws: Any, line: IrcLine, now: float) -> None:
         cmd = line.command
         if cmd == "PRIVMSG":
-            msg = to_chat_message(line, now)
+            ts = self._arrival.stamp(now, sent_ts(line))
+            if now - ts > LATE_WARN_S and now - self._late_logged > 30:
+                self._late_logged = now
+                log.warning("chat is arriving %.0f s late (the connection or this process stalled); "
+                            "those messages keep their send time", now - ts)
+            msg = to_chat_message(line, ts)
             if msg is not None:
                 self.messages += 1
                 self.bus.publish(Topic.CHAT, msg)
