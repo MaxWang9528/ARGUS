@@ -282,6 +282,28 @@ async def get_clip_screenshot(request: Request, clip_id: str) -> FileResponse:
     return FileResponse(path)
 
 
+class PurgeBody(BaseModel):
+    statuses: list[str] | None = None  # None = every status that isn't in progress
+    older_than_h: float = 0.0
+
+
+@router.post("/clips/purge")
+async def post_purge(request: Request, body: PurgeBody) -> dict[str, int]:
+    """Delete clips (files and rows) by status and age. In-progress clips are kept."""
+    lw = _lw(request)
+    try:
+        return lw.purge_clips(body.statuses, body.older_than_h)
+    except ValueError as exc:  # unknown status name
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.delete("/clips/{clip_id}")
+async def delete_clip(request: Request, clip_id: str) -> dict[str, int]:
+    lw = _lw(request)
+    _clip(lw, clip_id)
+    return {"files": lw.delete_clip(clip_id)}
+
+
 @router.post("/clips/{clip_id}/approve")
 async def post_approve(request: Request, clip_id: str) -> dict[str, Any]:
     lw = _lw(request)

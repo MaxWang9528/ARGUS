@@ -29,6 +29,7 @@ min_msgs_per_sec = 2.0
 min_unique_chatters = 5
 end_ratio = 1.5                # the peak ends when chat falls below this many times normal
 cooldown_s = 90
+min_sustain_s = 10             # chat must stay raised this long; shorter bursts are spikes, not clipped
 preroll_s = 25                 # seconds kept before the peak
 postroll_s = 6                 # seconds kept after the peak ends
 max_clip_s = 60

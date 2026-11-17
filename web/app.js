@@ -401,6 +401,7 @@ document.addEventListener('alpine:init', () => {
       { key: 'min_unique_chatters', label: 'Different chatters, at least', min: 0, max: 60, step: 1, unit: '', help: 'Stops one person spamming from counting.' },
       { key: 'end_ratio', label: 'Peak ends below', min: 1, max: 5, step: 0.1, unit: '× normal', help: 'When chat falls under this, the peak is over.' },
       { key: 'cooldown_s', label: 'Wait between peaks', min: 0, max: 600, step: 5, unit: 's', help: 'No new peak this soon after the last one.' },
+      { key: 'min_sustain_s', label: 'Chat must stay up for', min: 0, max: 60, step: 1, unit: 's', help: 'Shorter bursts are one-off spikes and are not clipped.' },
       { key: 'smooth_s', label: 'Smoothing', min: 1, max: 30, step: 1, unit: 's', help: 'Averages the rate over this many seconds.' },
       { key: 'baseline_window_s', label: 'Normal is measured over', min: 60, max: 1800, step: 30, unit: 's', help: 'How far back "normal chat" looks.' },
       { key: 'preroll_s', label: 'Keep before the peak', min: 0, max: 60, step: 1, unit: 's', help: 'Seconds of video kept before chat rose.' },
@@ -941,6 +942,12 @@ document.addEventListener('alpine:init', () => {
     },
 
     /* ---- clips ------------------------------------------------------------ */
+    purge: { open: false, busy: false, older_than_h: 0, groups: { review: false, uploaded: true, failed: true } },
+    purgeGroups: [
+      { id: 'review', label: 'To review' }, { id: 'uploaded', label: 'Uploaded and dry runs' },
+      { id: 'failed', label: 'Failed, dropped and rejected' },
+    ],
+    confirmDeleteClip: null,
     tabStatuses: {
       review: ['pending_review'],
       queued: ['queued', 'uploading'],
@@ -1026,6 +1033,40 @@ document.addEventListener('alpine:init', () => {
     canReject(c) { return ['pending_review', 'dry_run_ok', 'failed', 'queued', 'waiting', 'cutting', 'rendering'].includes(c.status); },
     approveLabel(c) {
       return { pending_review: 'Approve', failed: 'Retry upload', dry_run_ok: 'Queue again', rejected: 'Approve after all', dropped: 'Queue again' }[c.status] || 'Approve';
+    },
+
+    purgeStatuses(ids) { return ids.flatMap(id => this.tabStatuses[id]); },
+    purgeCount(ids) {
+      const st = new Set(this.purgeStatuses(ids));
+      const cutoff = Date.now() / 1000 - (+this.purge.older_than_h || 0) * 3600;
+      return this.clips.filter(c => st.has(c.status) && (!(+this.purge.older_than_h) || c.created_at <= cutoff)).length;
+    },
+    purgeSelectedCount() { return this.purgeCount(this.purgeGroups.map(g => g.id).filter(id => this.purge.groups[id])); },
+    async runPurge() {
+      const statuses = this.purgeStatuses(this.purgeGroups.map(g => g.id).filter(id => this.purge.groups[id]));
+      if (!statuses.length) return;
+      this.purge.busy = true;
+      try {
+        const r = await api('POST', '/clips/purge', { statuses, older_than_h: +this.purge.older_than_h || 0 });
+        this.clips = await api('GET', '/clips?limit=500');
+        this.toast(`Deleted ${r.clips} clips and ${r.files} files.`);
+        this.purge.open = false;
+      } catch (e) {
+        this.toast(`Couldn't purge: ${e.message}`, 'bad');
+      } finally {
+        this.purge.busy = false;
+      }
+    },
+    canDelete(c) { return !['waiting', 'cutting', 'rendering', 'queued', 'uploading'].includes(c.status); },
+    async deleteClip(c) {
+      this.confirmDeleteClip = null;
+      try {
+        await api('DELETE', `/clips/${c.id}`);
+        this.clips = this.clips.filter(x => x.id !== c.id);
+        this.toast(`Deleted the ${c.streamer} clip.`);
+      } catch (e) {
+        this.toast(`Couldn't delete the clip: ${e.message}`, 'bad');
+      }
     },
 
     async act(c, action) {

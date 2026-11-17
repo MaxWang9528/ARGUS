@@ -96,6 +96,8 @@ JSON bodies are the pydantic models dumped with `model_dump(mode="json")`. Error
 | `GET /api/clips/{id}/video?layout=` | rendered mp4 (default: active layout), supports Range | `clip.renders` |
 | `GET /api/clips/{id}/rates` **(Phase 2)** | `RateSample[]` over the clip window ±5 s, oldest first; video time t = chat time `window_start + t` | `app.clip_rates` (saved to `clips/rates/<id>.json` when the clip is ready) |
 | `GET /api/clips/{id}/raw` | raw mp4 | `clip.raw_path` |
+| `DELETE /api/clips/{id}` | `{files}`: deletes the clip's files and row; 409 while it is waiting, cutting, rendering, queued or uploading | `app.delete_clip` |
+| `POST /api/clips/purge` body `{statuses?: [..], older_than_h?: 0}` | `{clips, files, kept_in_progress}`: deletes matching clips (no statuses = every status not in progress); in-progress clips are always kept; 422 for an unknown status | `app.purge_clips` |
 | `GET /api/clips/{id}/screenshot` | upload debug screenshot | `clip.debug_screenshot` |
 | `POST /api/clips/{id}/approve` | `Clip` | `app.clips.approve` |
 | `POST /api/clips/{id}/reject` | `Clip` | `app.clips.reject` |

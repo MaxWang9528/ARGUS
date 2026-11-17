@@ -79,6 +79,7 @@ Other commands:
   - the `cooldown_s` (90 s) since the last peak has passed
   - there is at least 60 s of chat history (the warm-up, which restarts after 2 minutes of total silence)
 - A peak **ends** when the rate falls below `baseline × end_ratio` (1.5), or when the clip would exceed `max_clip_s` (60 s).
+- **Sustained chatter only:** a peak counts only if chat stayed raised for at least `min_sustain_s` (10 s), from its rise to its fall. Smoothing stretches a one-off burst (a single second of spam, or one batch of messages) to about 6–7 s, so it is logged as "spike ignored" and not clipped, and it doesn't start the cooldown. Twitch delivers busy chats in batches with empty seconds between them, so this measures the length of the raised stretch rather than counting hot seconds. Replaying real chat logs, the 10 s default dropped only lone 6–7 s spikes.
 - Thresholds are re-read on every bin, so changes from the dashboard's Debug sliders apply immediately. Any `[detection]` key can be overridden per streamer.
 - The detector publishes one `RateSample` per bin, which feeds the graphs, and one `PeakEvent` when a peak ends.
 
@@ -176,7 +177,8 @@ FastAPI serves a static page (Alpine.js, uPlot, hls.js, no build step) on `127.0
   - Tabs: To review, Queued, Uploaded, and Failed/Dropped.
   - Each clip plays in a large 9:16 player, with its chat/s graph beside it. During playback a playhead moves across the graph and the line fills in up to it, so you watch chat react in sync. Clicking the graph seeks the video.
   - Each clip shows its chat ratio (for example "8.2× chat") or "manual". The Queued tab is in upload order, and posted clips show which account they went to.
-  - You can edit the caption, switch layout and re-render, and Approve/Retry or Reject.
+  - You can edit the caption, switch layout and re-render, Approve/Retry, Reject, or **Delete** a clip with its files.
+  - **Purge clips…** deletes many at once: choose To review, Uploaded and dry runs, and/or Failed, dropped and rejected, optionally only clips older than N hours. Clips being made, queued or uploading are always kept.
 - **Accounts:** add, remove and enable TikTok accounts; set each one's limits; **Log in** (opens a browser window for that account) and **Check**; see uploads in the last 24 h and the next free slot; and the **Cycle** switch.
 - **Debug:**
   - Log feed and peak log.

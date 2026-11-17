@@ -386,3 +386,19 @@ def test_cross_origin_writes_are_refused(client, lw):
     r = client.post(f"/api/clips/{clip.id}/reject", headers={"Origin": "http://testserver"})
     assert r.status_code == 200
     assert client.get("/api/state", headers={"Origin": "https://evil.example"}).status_code == 200
+
+
+def test_purge_and_delete_endpoints(client, lw):
+    from argus.core.models import Clip, ClipStatus
+    a = Clip(streamer="alpha", window_start=0, window_end=1, status=ClipStatus.REJECTED)
+    b = Clip(streamer="alpha", window_start=0, window_end=1, status=ClipStatus.UPLOADING)
+    c = Clip(streamer="alpha", window_start=0, window_end=1, status=ClipStatus.FAILED)
+    for x in (a, b, c):
+        lw.db.save_clip(x)
+    assert client.delete(f"/api/clips/{b.id}").status_code == 409   # in progress
+    assert client.delete(f"/api/clips/{c.id}").status_code == 200
+    assert client.delete("/api/clips/nope").status_code == 404
+    assert client.post("/api/clips/purge", json={"statuses": ["bogus"]}).status_code == 422
+    r = client.post("/api/clips/purge", json={"statuses": ["rejected", "uploading"]})
+    assert r.status_code == 200 and r.json()["clips"] == 1 and r.json()["kept_in_progress"] == 1
+    assert lw.db.get_clip(a.id) is None and lw.db.get_clip(b.id) is not None

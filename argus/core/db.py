@@ -81,6 +81,12 @@ class Database:
             )
             self._conn.commit()
 
+    def delete_clip(self, clip_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM clips WHERE id=?", (clip_id,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
     def get_clip(self, clip_id: str) -> Clip | None:
         with self._lock:
             row = self._conn.execute("SELECT data FROM clips WHERE id=?", (clip_id,)).fetchone()

@@ -215,10 +215,22 @@ class PeakTracker:
             end_level = max(a.baseline * det.end_ratio, a.baseline + a.spread)
             if rate < end_level or end >= a.ts_start + det.max_clip_s:
                 ts_end = min(end, a.ts_start + det.max_clip_s)
-                peak = PeakEvent(streamer=self.streamer, ts_start=a.ts_start, ts_peak=a.ts_peak,
-                                 ts_end=ts_end, score=a.peak_rate / max(a.baseline, MIN_SPREAD))
+                score = a.peak_rate / max(a.baseline, MIN_SPREAD)
                 self._active = None
-                self._last_end = ts_end
+                # How long chat stayed raised, from where it began rising to where it fell
+                # back. Measured on real chat, lone bursts come out at 6-7 s and reactions
+                # at 10 s and up.
+                sustained = ts_end - a.ts_start
+                if sustained >= det.min_sustain_s - 1e-9:
+                    peak = PeakEvent(streamer=self.streamer, ts_start=a.ts_start, ts_peak=a.ts_peak,
+                                     ts_end=ts_end, score=score)
+                    self._last_end = ts_end
+                else:
+                    # A spike, not sustained chatter: a lone burst lasts about smooth_s
+                    # seconds after smoothing. Dropped, and no cooldown, so a real peak
+                    # right after it still counts.
+                    log.info("spike ignored: chat stayed up %.0f s (score %.1f), needs %.0f s",
+                             sustained, score, det.min_sustain_s, extra={"streamer": self.streamer})
 
         if self._active is None and peak is None:
             if rate > 0:

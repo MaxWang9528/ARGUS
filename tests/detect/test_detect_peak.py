@@ -227,3 +227,49 @@ def test_bad_bin_s_does_not_crash():
     # Config validation now rejects bin_s <= 0; the detector's own guard stays as a backstop.
     samples, _ = run(chat([4.0] * 30), 30, Detection().model_copy(update={"bin_s": 0}))
     assert len(samples) == 30
+
+
+# ---- sustained chatter (min_sustain_s) ----------------------------------------------
+# Steady background chat, so the measured length is the burst's own, not stretched by
+# random noise just before it.
+
+def chat_steady(rates):
+    return chat(rates, noisy=False)
+
+
+def test_one_second_burst_does_not_clip():
+    # 80 messages from many people inside one second, then back to normal: smoothing
+    # stretches it to a ~6 s bump, shorter than min_sustain_s (10 s).
+    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0)])), 600)
+    assert peaks == []
+
+
+def test_one_second_burst_clips_without_the_sustain_rule():
+    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0)])), 600, Detection(min_sustain_s=0))
+    assert len(peaks) == 1
+
+
+def test_two_quick_bursts_are_not_sustained_chatter():
+    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0), (402, 1, 80.0)])), 600)
+    assert peaks == []
+
+
+def test_batched_delivery_still_counts_as_sustained():
+    # Twitch delivers busy chats in bursts with empty seconds between them.
+    rates = spike(4.0, 600, [(400 + 2 * k, 1, 60.0) for k in range(8)])
+    _, peaks = run(chat_steady(rates), 600)
+    assert len(peaks) == 1
+    assert T0 + 398 <= peaks[0].ts_start <= T0 + 402
+
+
+def test_a_spike_does_not_start_the_cooldown():
+    # a lone spike, then a real peak 20 s later (inside cooldown_s = 90): still clipped
+    rates = spike(4.0, 600, [(400, 1, 80.0), (420, 12, 30.0)])
+    _, peaks = run(chat_steady(rates), 600)
+    assert len(peaks) == 1 and peaks[0].ts_start >= T0 + 410
+
+
+def test_longer_sustain_needs_longer_chatter():
+    det = Detection(min_sustain_s=20)
+    assert run(chat_steady(spike(4.0, 600, [(400, 8, 30.0)])), 600, det)[1] == []
+    assert len(run(chat_steady(spike(4.0, 600, [(400, 25, 30.0)])), 600, det)[1]) == 1

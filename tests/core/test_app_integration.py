@@ -204,3 +204,42 @@ def test_expired_clip_with_render_can_be_queued_again(store: ConfigStore) -> Non
     clip.error = "expired: no upload slot within 6 h"
     app.db.save_clip(clip)
     assert app.clips.approve(clip.id).status == ClipStatus.QUEUED
+
+
+def test_purge_deletes_files_and_rows_but_keeps_in_progress(store: ConfigStore) -> None:
+    app = App(store, demo=True, serve=False)
+    done = _clip_with_files(app, ClipStatus.UPLOADED, age_days=0)
+    rejected = _clip_with_files(app, ClipStatus.REJECTED, age_days=0)
+    queued = _clip_with_files(app, ClipStatus.QUEUED, age_days=0)
+    review = _clip_with_files(app, ClipStatus.PENDING_REVIEW, age_days=0)
+
+    got = app.purge_clips(["rejected", "uploaded", "queued"])
+    assert got == {"clips": 2, "files": 4, "kept_in_progress": 1}
+    for c in (done, rejected):
+        assert app.db.get_clip(c.id) is None and not Path(c.raw_path).exists()
+    for c in (queued, review):
+        assert app.db.get_clip(c.id) is not None and Path(c.raw_path).exists()
+
+    assert app.purge_clips()["clips"] == 1  # everything not in progress: the review clip
+    assert app.db.get_clip(queued.id) is not None
+
+
+def test_purge_by_age(store: ConfigStore) -> None:
+    app = App(store, demo=True, serve=False)
+    old = _clip_with_files(app, ClipStatus.UPLOADED, age_days=2)
+    new = _clip_with_files(app, ClipStatus.UPLOADED, age_days=0)
+    assert app.purge_clips(older_than_h=24)["clips"] == 1
+    assert app.db.get_clip(old.id) is None and app.db.get_clip(new.id) is not None
+
+
+def test_delete_one_clip(store: ConfigStore) -> None:
+    import pytest
+
+    from argus.app import ClipError
+    app = App(store, demo=True, serve=False)
+    clip = _clip_with_files(app, ClipStatus.FAILED, age_days=0)
+    busy = _clip_with_files(app, ClipStatus.UPLOADING, age_days=0)
+    assert app.delete_clip(clip.id) == 2
+    assert app.db.get_clip(clip.id) is None
+    with pytest.raises(ClipError):
+        app.delete_clip(busy.id)

@@ -80,6 +80,10 @@ class Detection(_Model):
     min_unique_chatters: int = 5
     end_ratio: float = 1.5
     cooldown_s: float = 90
+    # A peak counts only if chat stays raised at least this long (from its rise to its
+    # fall); shorter ones are one-off spikes and aren't clipped. Smoothing stretches a lone
+    # burst to about smooth_s + 1 s.
+    min_sustain_s: float = Field(10, ge=0)
     preroll_s: float = 25
     postroll_s: float = 6
     max_clip_s: float = 60

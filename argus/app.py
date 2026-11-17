@@ -362,27 +362,12 @@ class App:
         clips_dir = (cfg.data_dir / "clips").resolve()
         removed = 0
 
-        def drop(path: str | None) -> None:
-            nonlocal removed
-            if not path:
-                return
-            p = Path(path).resolve()
-            if not p.is_relative_to(cfg.data_dir.resolve()):
-                return  # never delete outside data_dir
-            try:
-                p.unlink()
-                removed += 1
-            except FileNotFoundError:
-                pass
-
         for clip in self.db.list_clips(limit=1_000_000, oldest_first=True):
             if clip.created_at >= cutoff:
                 break
             if clip.status in self._BUSY or not (clip.raw_path or clip.renders or clip.debug_screenshot):
                 continue
-            for path in (clip.raw_path, *clip.renders.values(), clip.debug_screenshot,
-                         str(self._clip_rates_path(clip.id))):
-                drop(path)
+            removed += self._delete_clip_files(clip)
             clip.raw_path, clip.renders, clip.debug_screenshot = None, {}, None
             self.db.save_clip(clip)
             self.bus.publish(Topic.CLIP, clip.model_copy(deep=True))
@@ -394,6 +379,61 @@ class App:
         if removed:
             log.info("retention: deleted %d clip files older than %d days", removed, days)
         return removed
+
+    def _delete_clip_files(self, clip: Clip) -> int:
+        """Delete a clip's raw, rendered, screenshot and chat-rate files. Never touches
+        anything outside data_dir. Returns how many files were deleted."""
+        root = self.store.get().data_dir.resolve()
+        removed = 0
+        for path in (clip.raw_path, *clip.renders.values(), clip.debug_screenshot,
+                     str(self._clip_rates_path(clip.id))):
+            if not path:
+                continue
+            p = Path(path).resolve()
+            if not p.is_relative_to(root):
+                continue
+            try:
+                p.unlink()
+                removed += 1
+            except FileNotFoundError:
+                pass
+        return removed
+
+    # ---- purge (dashboard) ------------------------------------------------------
+    def delete_clip(self, clip_id: str) -> int:
+        """Delete one clip: its files and its row. Clips still being made or uploaded
+        can't be deleted (ClipError). Returns the number of files deleted."""
+        clip = self.db.get_clip(clip_id)
+        if clip is None:
+            raise ClipError(f"no clip with id {clip_id}")
+        if clip.status in self._BUSY:
+            raise ClipError(f"clip is {clip.status.value}; wait for it to finish or reject it first")
+        files = self._delete_clip_files(clip)
+        self.db.delete_clip(clip_id)
+        log.info("clip %s deleted (%d files)", clip_id, files, extra={"streamer": clip.streamer})
+        return files
+
+    def purge_clips(self, statuses: list[str] | None = None, older_than_h: float = 0.0) -> dict[str, int]:
+        """Delete every clip in ``statuses`` (None = every status that isn't in progress)
+        and older than ``older_than_h`` hours (0 = any age): files and rows. Clips being
+        made, queued or uploading are always kept."""
+        wanted = None if statuses is None else {ClipStatus(s) for s in statuses}
+        cutoff = time.time() - older_than_h * 3600 if older_than_h > 0 else None
+        clips = files = kept = 0
+        for clip in self.db.list_clips(limit=1_000_000):
+            if wanted is not None and clip.status not in wanted:
+                continue
+            if cutoff is not None and clip.created_at > cutoff:
+                continue
+            if clip.status in self._BUSY:
+                kept += 1
+                continue
+            files += self._delete_clip_files(clip)
+            self.db.delete_clip(clip.id)
+            clips += 1
+        if clips:
+            log.info("purged %d clips (%d files)", clips, files)
+        return {"clips": clips, "files": files, "kept_in_progress": kept}
 
     async def _retention(self) -> None:
         while True:
