@@ -189,3 +189,11 @@ def test_offline_peak_asks_for_a_live_check(store: ConfigStore, monkeypatch) -> 
     app.recorder.request_live_check = lambda: asked.append(True)
     assert app.clips.on_peak(_peak()) is None
     assert asked == [True]
+
+
+def test_expired_clip_with_render_can_be_queued_again(store: ConfigStore) -> None:
+    app = App(store, demo=True, serve=False)
+    clip = _clip_with_files(app, ClipStatus.DROPPED, age_days=0)
+    clip.error = "expired: no upload slot within 6 h"
+    app.db.save_clip(clip)
+    assert app.clips.approve(clip.id).status == ClipStatus.QUEUED

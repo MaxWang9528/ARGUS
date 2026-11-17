@@ -22,7 +22,9 @@ from livewatcher.core.models import ClipStatus, LogLine, RateSample
 def test_state(client, lw):
     body = client.get("/api/state").json()
     assert body["auto_upload"] is False and body["dry_run"] is True
-    assert body["components"] == lw.components and set(body["components"].values()) == {"fake"}
+    assert body["components"] == lw.components
+    # the demo runs on fakes, except the upload queue (pure logic, driving the fake uploader)
+    assert {k for k, v in body["components"].items() if v == "real"} == {"upload_queue"}
     assert [s["name"] for s in body["streamers"]] == ["alpha", "beta"]
     alpha = body["streamers"][0]
     assert alpha["enabled"] is True and alpha["has_playlist"] is False and alpha["has_snapshot"] is False

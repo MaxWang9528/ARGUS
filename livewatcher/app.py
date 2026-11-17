@@ -188,8 +188,9 @@ class ClipService:
     def approve(self, clip_id: str) -> Clip:
         """Send a reviewed clip to the upload queue. Also retries a failed upload."""
         clip = self._get(clip_id)
+        # DROPPED covers clips that expired in the upload queue; one with a render can go back.
         if clip.status not in (ClipStatus.PENDING_REVIEW, ClipStatus.DRY_RUN_OK, ClipStatus.FAILED,
-                               ClipStatus.REJECTED):
+                               ClipStatus.REJECTED, ClipStatus.DROPPED):
             raise ClipError(f"clip is {clip.status.value}, can't approve it")
         if not clip.out_path:
             raise ClipError("clip has no rendered file")
@@ -255,9 +256,13 @@ class App:
         self._rates: dict[str, deque[RateSample]] = {}
         self._logs: deque[LogLine] = deque(maxlen=500)
 
+    _REAL_IN_DEMO = ("upload_queue",)
+
     def _make(self, name: str, **kwargs: Any) -> Any:
         module, cls_name, fake = _REAL[name]
-        if not self.demo:
+        # The real upload queue is pure logic (limits, ranking, account rotation); in the
+        # demo it drives the fake uploader, so the Accounts page behaves for real.
+        if not self.demo or name in self._REAL_IN_DEMO:
             try:
                 cls = getattr(importlib.import_module(module), cls_name)
                 self.components[name] = "real"

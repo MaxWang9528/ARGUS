@@ -36,7 +36,7 @@ Other commands:
 | `./lw run` | Watches the streamers in `config.toml`. Ctrl+C stops everything, including the recorder processes. |
 | `./lw demo` | Starts the dashboard with fake streams, chat and uploads. Nothing touches Twitch or TikTok. |
 | `./lw replay <chatlog.jsonl> [--streamer name]` | Runs the peak detector over a recorded chat log and prints the peaks it finds. Use it to tune the thresholds. |
-| `./lw login-tiktok` | Opens a browser window so you can log in to TikTok once. The login is saved in a browser profile. |
+| `./lw login-tiktok [--account NAME]` | Opens a browser window so you can log in to a TikTok account once. The login is saved in that account's browser profile. The Accounts page has a Log in button that does the same. |
 | `./lw --config other.toml run` | Uses a different config file. |
 
 ### One-time setup
@@ -92,7 +92,8 @@ Other commands:
 
 ### 4. Video buffer (`livewatcher/capture/`)
 
-- **Live check:** every `live_check_interval_s` (20 s), and at once when chat spikes on a channel that looks offline (a stream that just started can take a minute or two to show as live). It uses Helix if `[twitch]` keys are set, otherwise streamlink (about 0.3–1.2 s per channel).
+- **Live check:** every `live_check_interval_s` (20 s), and at once when chat spikes on a channel that looks offline (a stream that just started can take a minute or two to show as live). It uses Helix if `[twitch]` keys are set. Otherwise it sends one keyless query to Twitch's public web API, the same one streamlink uses, per 100 channels; this takes about 0.1 s for 62 channels. It falls back to streamlink, which is slower and gives no viewer counts. Each check gives live/offline, title, category and **viewer count**.
+- **Max streamers:** at most `general.max_streamers` (12 in the example) live streamers are recorded at once. They are ranked with streams in `clip_categories` first, then by viewers, highest first. A recorded streamer is only replaced by one with at least 20% more viewers, so the set doesn't keep changing. The others are marked "live, not recorded": their chat is still read, but they have no buffer and aren't clipped. 0 = no limit.
 - **Recording:** each live streamer gets one recorder worker process.
   - The worker uses streamlink's Twitch HLS reader with low latency on, and writes Twitch's own **2 s segments** to `buffer/<streamer>/` without re-encoding them. They are `.ts`, or self-contained `.mp4` when Twitch serves fMP4.
   - Every segment is dated with Twitch's `PROGRAM-DATE-TIME`, not with the time it arrived.
@@ -139,10 +140,13 @@ You can re-render any clip in another layout from the Clips tab; each layout's f
 
 ### 8. Uploading (`livewatcher/upload/`)
 
-- The **upload queue** uploads the oldest `queued` clip first, one at a time.
-  - It allows at most `max_uploads_per_day` (6) real uploads in any 24 h, at least `min_minutes_between_uploads` (45) apart.
-  - Dry runs are not limited.
-- The **uploader** drives a real Chromium through Playwright, using the profile saved by `login-tiktok`:
+- **Accounts:** `[[tiktok.accounts]]`, or the Accounts page, lists the TikTok accounts to post to. Each one has its own browser profile (login), `max_uploads_per_day` and `min_minutes_between_uploads`. With no accounts listed there is one built-in account, `default`, that uses the `[tiktok]` profile and limits.
+- The **upload queue** uploads one clip at a time.
+  - **Which clip:** clips you made with Clip now go first, then the highest **chat-to-baseline ratio** (`clip.score`, the peak's rate ÷ normal chat), then the oldest. So when there are more clips than upload slots, the biggest chat reactions get posted. A clip that finds no slot within `tiktok.max_queue_age_h` (6) hours is dropped as expired; you can queue it again from the Failed tab.
+  - **Which account:** only enabled accounts with a free slot count: fewer than their daily maximum in the last 24 h, and at least their minimum gap since that account's last upload. With **Cycle** (`tiktok.cycle_accounts`) on, uploads go to each account in turn; with it off, to the first account in the list with a free slot. With no free account the clip waits, and the queue shows why.
+  - Dry runs don't count toward the limits, but they still rotate accounts, so a dry run with Cycle on tests each account's login in turn.
+  - A logged-out account or a CAPTCHA pauses only that account; a page change pauses the whole queue.
+- The **uploader** drives a real Chromium through Playwright, using the chosen account's profile saved by `login-tiktok`:
   1. Open TikTok's upload page and attach the file.
   2. Wait for processing.
   3. Type the caption, then read it back to check it stuck.
@@ -163,12 +167,15 @@ You can re-render any clip in another layout from the Clips tab; each layout's f
 FastAPI serves a static page (Alpine.js, uPlot, hls.js, no build step) on `127.0.0.1:8787`. It is bound to localhost because it can change the config and trigger uploads. Live updates come over a WebSocket.
 
 - **Streams:**
-  - Each card shows live video (or a snapshot), the category, the buffer length and a chat-rate graph with the baseline, threshold and peaks. Each has a **Clip now** button.
+  - Recorded streamers are shown as cards, sorted by viewers. Each card shows live video (or a snapshot), the viewer count, the category, the buffer length and a chat-rate graph with the baseline, threshold and peaks. Each has a **Clip now** button.
+  - "Live, not recorded" (outside max streamers) and "Offline" streamers are in collapsed lists.
   - Click a card to open it large; the arrow keys switch streamer.
 - **Clips:**
   - Tabs: To review, Queued, Uploaded, and Failed/Dropped.
   - Each clip plays in a large 9:16 player, with its chat/s graph beside it. During playback a playhead moves across the graph and the line fills in up to it, so you watch chat react in sync. Clicking the graph seeks the video.
+  - Each clip shows its chat ratio (for example "8.2× chat") or "manual". The Queued tab is in upload order, and posted clips show which account they went to.
   - You can edit the caption, switch layout and re-render, and Approve/Retry or Reject.
+- **Accounts:** add, remove and enable TikTok accounts; set each one's limits; **Log in** (opens a browser window for that account) and **Check**; see uploads in the last 24 h and the next free slot; and the **Cycle** switch.
 - **Debug:**
   - Log feed and peak log.
   - Detection sliders, global or per streamer.
@@ -202,7 +209,11 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | `tiktok.dry_run` | `true` | Never click Post |
 | `tiktok.dry_run_mode` | `"stop"` | Dry run: `"stop"` before Post, or `"draft"` to save to TikTok drafts |
 | `tiktok.caption_template` | GTA 6 tags in the example | `{streamer}` is replaced |
-| `tiktok.max_uploads_per_day` / `min_minutes_between_uploads` | `6` / `45` | Upload limits |
+| `general.max_streamers` | `12` in the example | Most live streamers recorded at once (0 = no limit) |
+| `tiktok.accounts` | none (= built-in `default`) | TikTok accounts: `name`, `enabled`, `browser_profile_dir`, `cookies_file`, `max_uploads_per_day`, `min_minutes_between_uploads` |
+| `tiktok.cycle_accounts` | `false` | Post to each account in turn |
+| `tiktok.max_queue_age_h` | `6` | Drop queued clips that find no slot within this many hours (0 = never) |
+| `tiktok.max_uploads_per_day` / `min_minutes_between_uploads` | `6` / `45` | Limits of the built-in `default` account |
 
 Each `[[streamers]]` entry has `name` and `enabled`, plus optional `layout`, `fit_zoom`, `crop_x`, `stack_top`, `stack_bottom` and `stack_split`. It can also override any `[detection]` key (for example `multiplier = 2.5` for a slower chat).
 
@@ -226,13 +237,13 @@ Keep `data_dir` on the Linux filesystem, not `/mnt/c`: the buffer writes constan
 
 ## Before relying on it unattended
 
-1. **TikTok login:** run `./lw login-tiktok` once.
+1. **TikTok login:** add your accounts on the Accounts page, then click **Log in** on each one (or run `./lw login-tiktok --account NAME`).
 2. **Selector check:** with `dry_run = true`, approve one clip and check the screenshot in `upload_debug/` shows a filled-in Post screen. Then try `dry_run_mode = "draft"` and check the clip appears in your TikTok drafts. TikTok changes its site; the selectors are all in `livewatcher/upload/tiktok_browser.py`.
 3. **One real upload,** on purpose.
 4. **Sync:** tune `sync_offset_s` on a live stream.
 5. Then turn on auto-upload.
 
-Each stream costs about 80 MB of RAM and 0.4 MB/s of download, so keep the list to roughly a dozen streamers on a 7 GB machine.
+Each recorded stream costs about 80 MB of RAM and 0.4 MB/s of download, so keep `max_streamers` to roughly a dozen on a 7 GB machine. The streamer list itself can be long: unrecorded streamers only cost a chat connection.
 
 **Risks:**
 - Automated posting can get a TikTok account limited. The daily limit, the spacing between uploads and stopping on CAPTCHAs keep this small, but don't remove it.
@@ -254,7 +265,7 @@ Each stream costs about 80 MB of RAM and 0.4 MB/s of download, so keep the list 
 | `livewatcher/chat/`, `detect/` | IRC reader, chat logs, peak detector, replay |
 | `livewatcher/capture/` | Live check, recorder, buffer index, snapshots, cutter |
 | `livewatcher/render/` | Filtergraphs, renderer, layout previews |
-| `livewatcher/upload/` | TikTok uploader, upload queue, login |
+| `livewatcher/upload/` | TikTok uploader, upload queue (ranking, accounts), login |
 | `livewatcher/api/`, `web/` | REST and WebSocket API, dashboard |
 | `docs/CONTRACTS.md` | Interfaces, events, API table, file layout |
 | `agents/` | The build plan and the original briefs |

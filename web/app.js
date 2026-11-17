@@ -1022,10 +1022,10 @@ document.addEventListener('alpine:init', () => {
     captionEditable(c) { return !['uploading', 'uploaded', 'dropped'].includes(c.status); },
     rerenderable(c) { return !!c.raw_path && ['pending_review', 'dry_run_ok', 'failed', 'rejected'].includes(c.status); },
     pickedLayout(c) { return this.layoutPick[c.id] || c.active_layout; },
-    canApprove(c) { return ['pending_review', 'dry_run_ok', 'failed', 'rejected'].includes(c.status) && this.hasRender(c); },
+    canApprove(c) { return ['pending_review', 'dry_run_ok', 'failed', 'rejected', 'dropped'].includes(c.status) && this.hasRender(c); },
     canReject(c) { return ['pending_review', 'dry_run_ok', 'failed', 'queued', 'waiting', 'cutting', 'rendering'].includes(c.status); },
     approveLabel(c) {
-      return { pending_review: 'Approve', failed: 'Retry upload', dry_run_ok: 'Queue again', rejected: 'Approve after all' }[c.status] || 'Approve';
+      return { pending_review: 'Approve', failed: 'Retry upload', dry_run_ok: 'Queue again', rejected: 'Approve after all', dropped: 'Queue again' }[c.status] || 'Approve';
     },
 
     async act(c, action) {
