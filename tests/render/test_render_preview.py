@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from livewatcher.core.config import Config, LayoutConfig, Region
-from livewatcher.render import layouts
-from livewatcher.render.ffmpeg_graph import crop_geometry
-from livewatcher.render.layouts import draw_preview, preview_regions
-from livewatcher.render.renderer import FfmpegRenderer
+from argus.core.config import Config, LayoutConfig, Region
+from argus.render import layouts
+from argus.render.ffmpeg_graph import crop_geometry
+from argus.render.layouts import draw_preview, preview_regions
+from argus.render.renderer import FfmpegRenderer
 
 STACKED = Config().layout_for("alpha", "stacked")
 VARIANTS = [LayoutConfig(), LayoutConfig(fit_zoom=1.3), LayoutConfig(layout="crop", crop_x=0),

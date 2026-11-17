@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.core.config import Config, ConfigStore, General, LayoutConfig, Render, Streamer
-from livewatcher.core.events import EventBus
-from livewatcher.core.interfaces import Renderer
-from livewatcher.core.models import Clip
-from livewatcher.render import renderer as renderer_mod
-from livewatcher.render.layouts import find_font
-from livewatcher.render.renderer import FfmpegRenderer, RenderError, SourceInfo, parse_probe
+from argus.core.config import Config, ConfigStore, General, LayoutConfig, Render, Streamer
+from argus.core.events import EventBus
+from argus.core.interfaces import Renderer
+from argus.core.models import Clip
+from argus.render import renderer as renderer_mod
+from argus.render.layouts import find_font
+from argus.render.renderer import FfmpegRenderer, RenderError, SourceInfo, parse_probe
 from tests.conftest import needs_ffmpeg
 
 STACKED = Config().layout_for("alpha", "stacked")

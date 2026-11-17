@@ -13,14 +13,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from livewatcher.api.accounts import LoginWindows
-from livewatcher.app import App
-from livewatcher.core.config import Config, ConfigStore, General, Streamer, TikTok
-from livewatcher.core.events import EventBus
-from livewatcher.core.fakes import FakeUploader
-from livewatcher.core.models import Clip, ClipStatus
-from livewatcher.upload import login, tiktok_browser
-from livewatcher.upload.queue import ClipUploadQueue
+from argus.api.accounts import LoginWindows
+from argus.app import App
+from argus.core.config import Config, ConfigStore, General, Streamer, TikTok
+from argus.core.events import EventBus
+from argus.core.fakes import FakeUploader
+from argus.core.models import Clip, ClipStatus
+from argus.upload import login, tiktok_browser
+from argus.upload.queue import ClipUploadQueue
 
 COOKIE_SECRET = "cookie-value-never-shown"
 

@@ -6,10 +6,10 @@ import asyncio
 import math
 import random
 
-from livewatcher.core.config import Detection
-from livewatcher.core.events import Topic
-from livewatcher.core.models import ChatMessage
-from livewatcher.detect.peak import ChatPeakDetector, PeakTracker, is_counted
+from argus.core.config import Detection
+from argus.core.events import Topic
+from argus.core.models import ChatMessage
+from argus.detect.peak import ChatPeakDetector, PeakTracker, is_counted
 
 T0 = 1_800_000_000.0
 DET = Detection()

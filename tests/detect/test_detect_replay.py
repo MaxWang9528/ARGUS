@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from livewatcher.core.config import ConfigStore
-from livewatcher.detect import replay
+from argus.core.config import ConfigStore
+from argus.detect import replay
 
 T0 = 1_800_000_000.0
 

@@ -8,8 +8,8 @@ import pytest
 from api_helpers import wait_for
 from starlette.websockets import WebSocketDisconnect
 
-from livewatcher.core.events import Topic
-from livewatcher.core.models import ChatMessage, Clip, LogLine, PeakEvent, RateSample, StreamStatus
+from argus.core.events import Topic
+from argus.core.models import ChatMessage, Clip, LogLine, PeakEvent, RateSample, StreamStatus
 
 
 def test_events_reach_the_client(client, lw):

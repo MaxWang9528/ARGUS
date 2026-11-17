@@ -84,7 +84,7 @@ class NoCacheStatic:
 
 def create_app(app: App, *, web_dir: Path | None = None) -> FastAPI:
     """Build the dashboard for one running ``App``."""
-    api = FastAPI(title="livewatcher", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
+    api = FastAPI(title="argus", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
     api.state.lw = app
 
     @api.exception_handler(ClipError)

@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.core.config import Config, ConfigStore, General, Streamer, TikTok
-from livewatcher.core.events import EventBus
-from livewatcher.core.models import Clip, ClipStatus
+from argus.core.config import Config, ConfigStore, General, Streamer, TikTok
+from argus.core.events import EventBus
+from argus.core.models import Clip, ClipStatus
 
 T0 = 1_800_000_000.0
 

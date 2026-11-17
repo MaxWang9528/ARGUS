@@ -1,4 +1,4 @@
-/* livewatcher dashboard. Plain script, no build step: Alpine.js drives the page,
+/* argus dashboard. Plain script, no build step: Alpine.js drives the page,
  * uPlot draws the chat-rate charts and hls.js plays the live buffer.
  *
  * Fast-changing data (rate samples, chart and player objects) lives outside
@@ -428,7 +428,7 @@ document.addEventListener('alpine:init', () => {
     logs: [],
     accounts: null,     // GET /api/accounts rows, null until loaded
     upload: null,       // GET /api/upload
-    accountsApi: 'unknown',  // unknown | ok | missing (404: this livewatcher has no accounts API)
+    accountsApi: 'unknown',  // unknown | ok | missing (404: this argus has no accounts API)
 
     // ui state
     selected: null,

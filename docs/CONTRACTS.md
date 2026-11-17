@@ -1,10 +1,10 @@
-# livewatcher contracts
+# ARGUS contracts
 
 FROZEN after Phase 0. If you need a change, describe it in your report and work around it in your own files.
 
 Phase 2 (integration) made the additions marked **(Phase 2)** below.
 
-The code is the source of truth for shapes: `livewatcher/core/models.py`, `interfaces.py`, `config.py`, `events.py`, `db.py`. This file adds the conventions the code can't show.
+The code is the source of truth for shapes: `argus/core/models.py`, `interfaces.py`, `config.py`, `events.py`, `db.py`. This file adds the conventions the code can't show.
 
 ## Running things
 - Python: `~/.venvs/livewatcher/bin/python` (shared, already has every dependency). Never create a venv or run `uv sync`.
@@ -21,15 +21,15 @@ Every timestamp is chat wall-clock time: UTC epoch seconds (`time.time()`). Only
 
 | Component | Module : class | Arguments |
 |---|---|---|
-| Chat | `livewatcher.chat.twitch_irc:TwitchChatSource` | `store, bus` |
-| Detector | `livewatcher.detect.peak:ChatPeakDetector` | `store, bus` |
-| Recorder | `livewatcher.capture.recorder:Recorder` | `store, bus` |
-| Cutter | `livewatcher.capture.cutter:Cutter` | `store, bus, recorder` **(Phase 2)** the real `Recorder`: it also calls `recorder.buffer_index(name)` and `recorder.buffer_dir(name)`, which are not in the `StreamRecorder` protocol, and raises `WindowUnavailable` without them |
-| Renderer | `livewatcher.render.renderer:FfmpegRenderer` | `store, bus` |
-| Uploader | `livewatcher.upload.tiktok_browser:TikTokUploader` | `store, bus` |
-| Upload queue | `livewatcher.upload.queue:ClipUploadQueue` | `store, bus, db, uploader` |
-| Dashboard | `livewatcher.api.server:create_app(app) -> FastAPI` | the `App` object |
-| CLI replay | `livewatcher.detect.replay:main(args) -> int` | `args.file`, `args.streamer`, `args.store` |
+| Chat | `argus.chat.twitch_irc:TwitchChatSource` | `store, bus` |
+| Detector | `argus.detect.peak:ChatPeakDetector` | `store, bus` |
+| Recorder | `argus.capture.recorder:Recorder` | `store, bus` |
+| Cutter | `argus.capture.cutter:Cutter` | `store, bus, recorder` **(Phase 2)** the real `Recorder`: it also calls `recorder.buffer_index(name)` and `recorder.buffer_dir(name)`, which are not in the `StreamRecorder` protocol, and raises `WindowUnavailable` without them |
+| Renderer | `argus.render.renderer:FfmpegRenderer` | `store, bus` |
+| Uploader | `argus.upload.tiktok_browser:TikTokUploader` | `store, bus` |
+| Upload queue | `argus.upload.queue:ClipUploadQueue` | `store, bus, db, uploader` |
+| Dashboard | `argus.api.server:create_app(app) -> FastAPI` | the `App` object |
+| CLI replay | `argus.detect.replay:main(args) -> int` | `args.file`, `args.streamer`, `args.store` |
 
 A class may take extra keyword arguments with defaults (useful for tests). `run()` coroutines run for the life of the app and must stop cleanly when cancelled, killing any child processes.
 
@@ -41,7 +41,7 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 ## Files under `data_dir`
 | Path | Owner | What |
 |---|---|---|
-| `livewatcher.db` | core | SQLite database |
+| `argus.db` | core | SQLite database |
 | `buffer/<streamer>/` | B | rolling segments and `live.m3u8` |
 | `snapshots/<streamer>.jpg` | B | latest frame, replaced atomically |
 | `clips/tmp/<clip_id>/` | B | cut scratch (hard links into `buffer/`, so it must share its filesystem) |
@@ -63,7 +63,7 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 | `config_changed` | `{"patch"}` (the WebSocket blanks `twitch.client_secret` in it) **(Phase 2)** | core |
 | `log` | `LogLine` | core (see below) |
 
-**Logging:** use `logging.getLogger("livewatcher.<area>")`. The app forwards those records to the `log` topic. Tag a line with `extra={"streamer": name}`.
+**Logging:** use `logging.getLogger("argus.<area>")`. The app forwards those records to the `log` topic. Tag a line with `extra={"streamer": name}`.
 
 **Clips:** after changing a clip, always `db.save_clip(clip)` then `bus.publish(Topic.CLIP, clip)`.
 

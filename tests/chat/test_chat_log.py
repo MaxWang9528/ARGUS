@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-from livewatcher.chat.chatlog import ChatLogRecorder, chatlog_path, read_chat_log
-from livewatcher.core.events import Topic
-from livewatcher.core.models import ChatMessage
+from argus.chat.chatlog import ChatLogRecorder, chatlog_path, read_chat_log
+from argus.core.events import Topic
+from argus.core.models import ChatMessage
 
 DAY1 = 1_800_000_000.0          # 2027-01-15 08:00 UTC
 DAY2 = DAY1 + 16 * 3600 + 5     # the next UTC day

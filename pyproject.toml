@@ -1,5 +1,5 @@
 [project]
-name = "livewatcher"
+name = "argus"
 version = "0.1.0"
 description = "Watch Twitch streams, clip chat peaks, upload to TikTok"
 requires-python = ">=3.13"

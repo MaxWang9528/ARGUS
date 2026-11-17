@@ -30,13 +30,13 @@ import httpx
 
 from ..core.config import ConfigStore
 
-log = logging.getLogger("livewatcher.capture")
+log = logging.getLogger("argus.capture")
 
 HELIX_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 HELIX_STREAMS_URL = "https://api.twitch.tv/helix/streams"
 GQL_URL = "https://gql.twitch.tv/gql"
 GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"  # Twitch's public web client id (streamlink's too)
-GQL_QUERY = ("query LivewatcherStreams($logins: [String!]) { users(logins: $logins) "
+GQL_QUERY = ("query ArgusStreams($logins: [String!]) { users(logins: $logins) "
              "{ login stream { type viewersCount title game { name } } } }")
 BATCH = 100  # logins per Helix or GQL request
 
@@ -179,7 +179,7 @@ class LiveChecker:
         for i in range(0, len(names), BATCH):
             chunk = names[i:i + BATCH]
             r = await self._client().post(GQL_URL, headers={"Client-ID": GQL_CLIENT_ID}, json={
-                "operationName": "LivewatcherStreams", "query": GQL_QUERY,
+                "operationName": "ArgusStreams", "query": GQL_QUERY,
                 "variables": {"logins": chunk}})
             r.raise_for_status()
             body = r.json()

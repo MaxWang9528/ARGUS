@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.core.config import Config, ConfigStore, General, Streamer
-from livewatcher.core.db import Database
-from livewatcher.core.events import EventBus
+from argus.core.config import Config, ConfigStore, General, Streamer
+from argus.core.db import Database
+from argus.core.events import EventBus
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 

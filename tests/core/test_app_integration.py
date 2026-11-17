@@ -7,9 +7,9 @@ import os
 import time
 from pathlib import Path
 
-from livewatcher.app import App
-from livewatcher.core.config import ConfigStore
-from livewatcher.core.models import Clip, ClipStatus
+from argus.app import App
+from argus.core.config import ConfigStore
+from argus.core.models import Clip, ClipStatus
 
 DAY = 86400.0
 
@@ -97,7 +97,7 @@ def test_detection_rejects_non_positive_bins(store: ConfigStore) -> None:
 
 
 async def test_clip_events_are_snapshots(store: ConfigStore) -> None:
-    from livewatcher.core.events import Topic
+    from argus.core.events import Topic
     app = App(store, demo=True, serve=False)
     with app.bus.subscribe(Topic.CLIP) as sub:
         clip = Clip(streamer="alpha", window_start=0, window_end=1)
@@ -111,7 +111,7 @@ async def test_clip_events_are_snapshots(store: ConfigStore) -> None:
 
 class _Status:
     def __init__(self, category: str) -> None:
-        from livewatcher.core.models import StreamStatus
+        from argus.core.models import StreamStatus
         self.st = StreamStatus(streamer="alpha", live=True, category=category)
 
     def __call__(self, streamer: str):
@@ -119,7 +119,7 @@ class _Status:
 
 
 def _peak(source: str = "auto"):
-    from livewatcher.core.models import PeakEvent
+    from argus.core.models import PeakEvent
     now = time.time()
     return PeakEvent(streamer="alpha", ts_start=now, ts_peak=now, ts_end=now, source=source)
 
@@ -147,13 +147,13 @@ def test_auto_clip_off_skips_auto_peaks_only(store: ConfigStore, monkeypatch) ->
 
 
 def test_old_clip_categories_key_still_loads(tmp_path) -> None:
-    from livewatcher.core.config import Config
+    from argus.core.config import Config
     cfg = Config.model_validate({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
     assert cfg.general.priority_categories == ["Grand Theft Auto VI"]
 
 
 def test_clip_rates_saved_and_read_back(store: ConfigStore) -> None:
-    from livewatcher.core.models import RateSample
+    from argus.core.models import RateSample
     app = App(store, demo=True, serve=False)
     t0 = 1_800_000_000.0
     from collections import deque
@@ -189,7 +189,7 @@ def test_clip_now_window_is_shifted_later(store: ConfigStore, monkeypatch) -> No
 
 
 def test_offline_peak_asks_for_a_live_check(store: ConfigStore, monkeypatch) -> None:
-    from livewatcher.core.models import StreamStatus
+    from argus.core.models import StreamStatus
     app = App(store, demo=True, serve=False)
     asked = []
     monkeypatch.setattr(app.recorder, "status", lambda s: StreamStatus(streamer=s, live=False))

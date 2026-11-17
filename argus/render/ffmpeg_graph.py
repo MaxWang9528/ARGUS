@@ -16,7 +16,7 @@ import math
 import re
 from dataclasses import dataclass
 
-from livewatcher.core.config import LayoutConfig, Region
+from argus.core.config import LayoutConfig, Region
 
 OUT_LABEL = "[v]"
 

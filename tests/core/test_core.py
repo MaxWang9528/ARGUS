@@ -4,10 +4,10 @@ import asyncio
 import tomllib
 from pathlib import Path
 
-from livewatcher.app import App
-from livewatcher.core.config import ConfigStore
-from livewatcher.core.events import Topic
-from livewatcher.core.models import ClipStatus
+from argus.app import App
+from argus.core.config import ConfigStore
+from argus.core.events import Topic
+from argus.core.models import ClipStatus
 
 
 def test_example_config_is_valid(tmp_path):

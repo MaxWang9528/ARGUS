@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from livewatcher.capture.buffer import BufferIndex, Gap
-from livewatcher.core.interfaces import WindowUnavailable
+from argus.capture.buffer import BufferIndex, Gap
+from argus.core.interfaces import WindowUnavailable
 
 T0 = 1_800_000_000.0
 

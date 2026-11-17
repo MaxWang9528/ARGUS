@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>livewatcher</title>
+  <title>ARGUS</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='3' width='14' height='10' rx='2' fill='%2318212b'/%3E%3Ccircle cx='8' cy='8' r='2.6' fill='%23e5484d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="vendor/uPlot-1.6.32.min.css">
   <link rel="stylesheet" href="styles.css">
@@ -16,9 +16,9 @@
 <body x-data="dash" x-cloak @keydown.window="onKey($event)">
 
 <header class="top">
-  <div class="brand" aria-label="livewatcher">
+  <div class="brand" aria-label="argus">
     <span class="brand-mark" aria-hidden="true"><i></i></span>
-    <span class="brand-name">livewatcher</span>
+    <span class="brand-name">ARGUS</span>
   </div>
   <nav class="views" aria-label="Views">
     <template x-for="v in views" :key="v.id">
@@ -49,13 +49,13 @@
 </header>
 
 <div class="banner" role="status" x-show="connState !== 'open' && everConnected" x-transition.opacity>
-  <strong>Lost the connection to livewatcher.</strong>
+  <strong>Lost the connection to argus.</strong>
   <span x-text="retryIn > 0 ? 'Trying again in ' + retryIn + ' s.' : 'Reconnecting…'"></span>
   <span>Live updates are paused; the page catches up once it's back.</span>
   <button type="button" class="btn small" @click="reconnectNow()">Retry now</button>
 </div>
 <div class="banner" role="status" x-show="connState !== 'open' && !everConnected && loadError">
-  <strong>Can't reach livewatcher.</strong>
+  <strong>Can't reach argus.</strong>
   <span x-text="loadError"></span>
   <button type="button" class="btn small" @click="reconnectNow()">Retry now</button>
 </div>
@@ -403,7 +403,7 @@
   </div>
 
   <p class="quiet-note" data-testid="accounts-missing" x-show="accountsApi === 'missing'">
-    Accounts API not available: this livewatcher can't report logins or upload slots yet. The list below still edits the config.
+    Accounts API not available: this argus can't report logins or upload slots yet. The list below still edits the config.
   </p>
 
   <template x-if="upload && (upload.paused_reason || upload.waiting_reason)">

@@ -24,7 +24,7 @@ from ..core.events import EventBus, Topic
 from ..core.models import ChatMessage
 from .chatlog import ChatLogRecorder
 
-log = logging.getLogger("livewatcher.chat")
+log = logging.getLogger("argus.chat")
 
 TWITCH_IRC_URL = "wss://irc-ws.chat.twitch.tv:443"
 JOINS_PER_WINDOW = 18      # Twitch allows about 20 JOINs per 10 s for anonymous users

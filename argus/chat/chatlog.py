@@ -20,7 +20,7 @@ from ..core.config import ConfigStore
 from ..core.events import EventBus, Topic
 from ..core.models import ChatMessage
 
-log = logging.getLogger("livewatcher.chat")
+log = logging.getLogger("argus.chat")
 
 
 def chatlog_path(data_dir: Path, streamer: str, ts: float) -> Path:

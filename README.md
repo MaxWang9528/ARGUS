@@ -1,6 +1,6 @@
-# livewatcher
+# ARGUS
 
-livewatcher watches Twitch streams live and works out when chat reacts to something. It then clips that moment from a rolling video buffer, renders a 9:16 vertical version and uploads it to TikTok. A local web dashboard shows the streams, the chat-rate graphs and a review queue for the clips.
+ARGUS watches Twitch streams live and works out when chat reacts to something. It then clips that moment from a rolling video buffer, renders a 9:16 vertical version and uploads it to TikTok. A local web dashboard shows the streams, the chat-rate graphs and a review queue for the clips.
 
 It is currently set up for **GTA 6** (launching November 19, 2026): GTA VI streams are recorded first and get a GTA 6 caption. Peaks in any game are clipped.
 
@@ -24,7 +24,7 @@ Twitch video (streamlink) ──> rolling 3-min buffer of 2 s segments │
 All commands run **inside WSL/Linux**, not in PowerShell. `lw` is a bash script, and Windows will ask which app to open it with if you double-click it.
 
 ```bash
-cd livewatcher                       # the repo folder
+cd argus                       # the repo folder
 cp config.example.toml config.toml   # then edit the [[streamers]] list
 ./lw run                             # dashboard at http://localhost:8787
 ```
@@ -54,7 +54,7 @@ Other commands:
 
 ## How it works
 
-### 1. Chat → chat rate (`livewatcher/chat/`, `livewatcher/detect/`)
+### 1. Chat → chat rate (`argus/chat/`, `argus/detect/`)
 
 - One anonymous IRC connection (`justinfanNNNNN`) to `wss://irc-ws.chat.twitch.tv` joins every enabled channel.
   - Joins are paced at 18 per 10 s.
@@ -65,7 +65,7 @@ Other commands:
   - One account counts for at most 2 messages per second, so a single spammer can't make a peak.
 - The rate is the trailing mean over **5 s** (`smooth_s`), in messages per second.
 
-### 2. Peak detection (`livewatcher/detect/peak.py`)
+### 2. Peak detection (`argus/detect/peak.py`)
 
 - **Baseline:** the rolling **median** of the rate over the last **10 minutes** (`baseline_window_s`), leaving out bins that were inside a peak.
   - The spread is the MAD × 1.4826, never below 0.25 msg/s, so a quiet chat can't produce an infinite score.
@@ -92,7 +92,7 @@ Other commands:
 - `general.priority_categories` (GTA VI in the example) only decides which streams are recorded first when `max_streamers` limits recording.
 - Each card shows the category, and the log notes each change ("xqc is playing Grand Theft Auto VI").
 
-### 4. Video buffer (`livewatcher/capture/`)
+### 4. Video buffer (`argus/capture/`)
 
 - **Live check:** every `live_check_interval_s` (20 s), and at once when chat spikes on a channel that looks offline (a stream that just started can take a minute or two to show as live). It uses Helix if `[twitch]` keys are set. Otherwise it sends one keyless query to Twitch's public web API, the same one streamlink uses, per 100 channels; this takes about 0.1 s for 62 channels. It falls back to streamlink, which is slower and gives no viewer counts. Each check gives live/offline, title, category and **viewer count**.
 - **Max streamers:** at most `general.max_streamers` (12 in the example) live streamers are recorded at once. They are ranked with streams in `priority_categories` first, then by viewers, highest first. A recorded streamer is only replaced by one with at least 20% more viewers, so the set doesn't keep changing. The others are marked "live, not recorded": their chat is still read, but they have no buffer and aren't clipped. 0 = no limit.
@@ -115,7 +115,7 @@ Other commands:
 - **Clip window** = `peak_start − preroll_s` (25 s) to `peak_end + postroll_s` (6 s), capped at `max_clip_s` (60 s).
 - **Clip now** shifts that window 5 s later: 20 s before the press to 11 s after it, so the clip includes what happens just after you press.
 
-### 6. Clip life cycle (`livewatcher/app.py`, `ClipService`)
+### 6. Clip life cycle (`argus/app.py`, `ClipService`)
 
 ```
 waiting ──> cutting ──> rendering ──> pending_review ──(approve)──> queued ──> uploading ──> uploaded
@@ -130,7 +130,7 @@ plus: rejected (by you), dropped (window not recordable: ad gap, too old, stream
 4. The clip's chat-rate samples are saved to `clips/rates/<id>.json`, so the dashboard can replay the graph with the video.
 5. **pending_review** if auto-upload is off, otherwise **queued**.
 
-### 7. Vertical layouts (`livewatcher/render/`)
+### 7. Vertical layouts (`argus/render/`)
 
 | Layout | Result | Settings |
 |---|---|---|
@@ -140,7 +140,7 @@ plus: rejected (by you), dropped (window not recordable: ad gap, too old, stream
 
 You can re-render any clip in another layout from the Clips tab; each layout's file is kept. The Debug tab's layout tool draws the regions over a live snapshot, so you can set them by eye and save them to the config.
 
-### 8. Uploading (`livewatcher/upload/`)
+### 8. Uploading (`argus/upload/`)
 
 - **Accounts:** `[[tiktok.accounts]]`, or the Accounts page, lists the TikTok accounts to post to. Each one has its own browser profile (login), `max_uploads_per_day` and `min_minutes_between_uploads`. With no accounts listed there is one built-in account, `default`, that uses the `[tiktok]` profile and limits.
 - The **upload queue** uploads one clip at a time.
@@ -164,7 +164,7 @@ You can re-render any clip in another layout from the Clips tab; each layout's f
   - Nothing after the Post click is ever retried automatically, so a clip can't be posted twice.
 - Caption: `tiktok.caption_template`, with `{streamer}` filled in. You can edit each clip's caption in the review queue.
 
-### 9. Dashboard (`livewatcher/api/`, `web/`)
+### 9. Dashboard (`argus/api/`, `web/`)
 
 FastAPI serves a static page (Alpine.js, uPlot, hls.js, no build step) on `127.0.0.1:8787`. It is bound to localhost because it can change the config and trigger uploads. Live updates come over a WebSocket.
 
@@ -205,7 +205,7 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | `tiktok.category_captions` | GTA VI in the example | Caption per Twitch category; others use `caption_template` (`{streamer}`, `{category}`) |
 | `general.retention_days` | `7` | Delete clip files after this many days |
 | `twitch.client_id` / `client_secret` | empty | Optional Helix keys: faster batched live checks |
-| `detection.*` | see [Peak detection](#2-peak-detection-livewatcherdetectpeakpy) | Thresholds; also adjustable live in the Debug tab |
+| `detection.*` | see [Peak detection](#2-peak-detection-argusdetectpeakpy) | Thresholds; also adjustable live in the Debug tab |
 | `capture.buffer_minutes` | `3` | How far back a clip can reach |
 | `capture.sync_offset_s` | `-2.0` | Chat-to-video offset (tune it live) |
 | `capture.quality` | `720p60,720p,best` | streamlink quality preference |
@@ -225,7 +225,7 @@ Each `[[streamers]]` entry has `name` and `enabled`, plus optional `layout`, `fi
 
 | Path | What |
 |---|---|
-| `livewatcher.db` | SQLite database: clips, peaks, upload history |
+| `argus.db` | SQLite database: clips, peaks, upload history |
 | `buffer/<streamer>/` | Rolling segments and `live.m3u8`, wiped at start-up |
 | `snapshots/<streamer>.jpg` | Latest frame |
 | `clips/raw/<id>.mp4` | Cut clip, source aspect ratio |
@@ -242,7 +242,7 @@ A relative `data_dir` (and relative profile folders) is resolved against the pro
 ## Before relying on it unattended
 
 1. **TikTok login:** add your accounts on the Accounts page, then click **Log in** on each one (or run `./lw login-tiktok --account NAME`).
-2. **Selector check:** with `dry_run = true`, approve one clip and check the screenshot in `upload_debug/` shows a filled-in Post screen. Then try `dry_run_mode = "draft"` and check the clip appears in your TikTok drafts. TikTok changes its site; the selectors are all in `livewatcher/upload/tiktok_browser.py`.
+2. **Selector check:** with `dry_run = true`, approve one clip and check the screenshot in `upload_debug/` shows a filled-in Post screen. Then try `dry_run_mode = "draft"` and check the clip appears in your TikTok drafts. TikTok changes its site; the selectors are all in `argus/upload/tiktok_browser.py`.
 3. **One real upload,** on purpose.
 4. **Sync:** tune `sync_offset_s` on a live stream.
 5. Then turn on auto-upload.
@@ -264,13 +264,13 @@ Each recorded stream costs about 80 MB of RAM and 0.4 MB/s of download, so keep 
 
 | Path | Contents |
 |---|---|
-| `livewatcher/core/` | Config, models, SQLite, event bus, interfaces, fakes for the demo |
-| `livewatcher/app.py` | Wires the components together; `ClipService`, retention |
-| `livewatcher/chat/`, `detect/` | IRC reader, chat logs, peak detector, replay |
-| `livewatcher/capture/` | Live check, recorder, buffer index, snapshots, cutter |
-| `livewatcher/render/` | Filtergraphs, renderer, layout previews |
-| `livewatcher/upload/` | TikTok uploader, upload queue (ranking, accounts), login |
-| `livewatcher/api/`, `web/` | REST and WebSocket API, dashboard |
+| `argus/core/` | Config, models, SQLite, event bus, interfaces, fakes for the demo |
+| `argus/app.py` | Wires the components together; `ClipService`, retention |
+| `argus/chat/`, `detect/` | IRC reader, chat logs, peak detector, replay |
+| `argus/capture/` | Live check, recorder, buffer index, snapshots, cutter |
+| `argus/render/` | Filtergraphs, renderer, layout previews |
+| `argus/upload/` | TikTok uploader, upload queue (ranking, accounts), login |
+| `argus/api/`, `web/` | REST and WebSocket API, dashboard |
 | `docs/CONTRACTS.md` | Interfaces, events, API table, file layout |
 | `agents/` | The build plan and the original briefs |
 

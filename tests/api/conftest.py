@@ -7,9 +7,9 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from livewatcher.api.server import create_app
-from livewatcher.app import App
-from livewatcher.core.config import ConfigStore
+from argus.api.server import create_app
+from argus.app import App
+from argus.core.config import ConfigStore
 
 
 @pytest.fixture

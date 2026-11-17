@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.capture.buffer import BufferIndex
-from livewatcher.capture.cutter import Cutter, cut_cmd
-from livewatcher.capture.recorder import Recorder
-from livewatcher.capture.snapshot import Snapshotter, grab_frame
-from livewatcher.core.config import ConfigStore
-from livewatcher.core.events import EventBus
-from livewatcher.core.interfaces import ClipCutter, WindowUnavailable
+from argus.capture.buffer import BufferIndex
+from argus.capture.cutter import Cutter, cut_cmd
+from argus.capture.recorder import Recorder
+from argus.capture.snapshot import Snapshotter, grab_frame
+from argus.core.config import ConfigStore
+from argus.core.events import EventBus
+from argus.core.interfaces import ClipCutter, WindowUnavailable
 
 T0 = 1_800_000_000.0  # same as conftest.py: Twitch date of the first fake segment
 
@@ -206,7 +206,7 @@ async def test_grab_frame_writes_a_jpeg(sample_segments: list[Path], tmp_path: P
 
 
 def test_ffmpeg_failure_message_without_stderr() -> None:
-    from livewatcher.capture.cutter import ffmpeg_failure
+    from argus.capture.cutter import ffmpeg_failure
 
     msg = ffmpeg_failure("cut", -11, b"", ["ffmpeg", "-i", "concat:a.ts|b.ts", "out.mp4"])
     assert "exit code -11" in msg and "signal 11" in msg and "'concat:a.ts|b.ts'" in msg

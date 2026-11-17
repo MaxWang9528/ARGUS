@@ -1,5 +1,5 @@
 """Stand-ins for every interface, so the app and each branch run without Twitch,
-ffmpeg or TikTok. FROZEN after Phase 0. Used by ``livewatcher demo`` and by tests.
+ffmpeg or TikTok. FROZEN after Phase 0. Used by ``argus demo`` and by tests.
 """
 
 from __future__ import annotations

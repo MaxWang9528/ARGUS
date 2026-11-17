@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.core.config import ConfigStore
-from livewatcher.core.events import EventBus
-from livewatcher.core.models import Clip
-from livewatcher.render.renderer import FfmpegRenderer
+from argus.core.config import ConfigStore
+from argus.core.events import EventBus
+from argus.core.models import Clip
+from argus.render.renderer import FfmpegRenderer
 
 STUB_FFMPEG = textwrap.dedent('''
     import json, os, sys, time

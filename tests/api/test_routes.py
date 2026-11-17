@@ -11,11 +11,11 @@ import pytest
 from api_helpers import SECRET, data_dir, make_live, saved_clip, wait_for, write_snapshot
 from fastapi.testclient import TestClient
 
-from livewatcher.api.server import create_app
-from livewatcher.app import App
-from livewatcher.core.config import ConfigStore
-from livewatcher.core.events import Topic
-from livewatcher.core.models import ClipStatus, LogLine, RateSample
+from argus.api.server import create_app
+from argus.app import App
+from argus.core.config import ConfigStore
+from argus.core.events import Topic
+from argus.core.models import ClipStatus, LogLine, RateSample
 
 
 # ---- state and streamers --------------------------------------------------------

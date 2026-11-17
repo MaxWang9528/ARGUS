@@ -22,12 +22,12 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.app import App
-from livewatcher.cli import DEMO_STREAMERS
-from livewatcher.core.config import Config, ConfigStore, Detection, General, Streamer
-from livewatcher.core.events import Topic
-from livewatcher.core.fakes import FakeRecorder
-from livewatcher.core.models import Clip, PeakEvent
+from argus.app import App
+from argus.cli import DEMO_STREAMERS
+from argus.core.config import Config, ConfigStore, Detection, General, Streamer
+from argus.core.events import Topic
+from argus.core.fakes import FakeRecorder
+from argus.core.models import Clip, PeakEvent
 
 sync_api = pytest.importorskip("playwright.sync_api")
 
@@ -635,7 +635,7 @@ def test_accounts_page(server: DemoServer, browser) -> None:
 
 
 def test_accounts_api_missing(server: DemoServer, browser) -> None:
-    """A livewatcher without the accounts API: a quiet note, and the page still works."""
+    """A argus without the accounts API: a quiet note, and the page still works."""
     page = browser.new_page(viewport={"width": 1366, "height": 900})
     errors = _watch_errors(page)
     calls: list[str] = []

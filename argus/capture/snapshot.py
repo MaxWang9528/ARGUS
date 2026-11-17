@@ -19,7 +19,7 @@ import shutil
 import time
 from pathlib import Path
 
-log = logging.getLogger("livewatcher.capture")
+log = logging.getLogger("argus.capture")
 
 SNAPSHOT_TIMEOUT_S = 10.0
 

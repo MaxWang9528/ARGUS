@@ -43,7 +43,7 @@ from .login import (
     open_context,
 )
 
-log = logging.getLogger("livewatcher.upload")
+log = logging.getLogger("argus.upload")
 
 # --------------------------------------------------------------------------------------
 # Selectors. One list of fallbacks per element, tried in order. Spec forms:

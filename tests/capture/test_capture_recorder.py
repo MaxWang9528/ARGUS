@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.capture import recorder as rec_mod
-from livewatcher.capture.live_check import LiveInfo
-from livewatcher.capture.recorder import (
+from argus.capture import recorder as rec_mod
+from argus.capture.live_check import LiveInfo
+from argus.capture.recorder import (
     Candidate,
     Recorder,
     _Emitter,
@@ -21,9 +21,9 @@ from livewatcher.capture.recorder import (
     pick_watched,
     store_segment,
 )
-from livewatcher.core.config import ConfigStore
-from livewatcher.core.events import EventBus, Topic
-from livewatcher.core.interfaces import StreamRecorder, WindowUnavailable
+from argus.core.config import ConfigStore
+from argus.core.events import EventBus, Topic
+from argus.core.interfaces import StreamRecorder, WindowUnavailable
 
 FAKE_WORKER = str(Path(__file__).with_name("fake_worker.py"))
 
@@ -399,11 +399,11 @@ def test_pick_quality() -> None:
 
 
 def test_default_worker_argv(store: ConfigStore) -> None:
-    from livewatcher.capture.recorder import default_worker_argv
+    from argus.capture.recorder import default_worker_argv
 
     cfg = store.get()
     argv = default_worker_argv("alpha", Path("/x"), cfg)
-    assert argv[:5] == [sys.executable, "-u", "-m", "livewatcher.capture.recorder", "worker"]
+    assert argv[:5] == [sys.executable, "-u", "-m", "argus.capture.recorder", "worker"]
     assert "--low-latency" in argv and "--keep-ads" not in argv
     store.update({"capture": {"low_latency": False, "filter_ads": False}})
     argv = default_worker_argv("alpha", Path("/x"), store.get())

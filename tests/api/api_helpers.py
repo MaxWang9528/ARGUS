@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from livewatcher.app import App
-from livewatcher.core.models import Clip, ClipStatus, StreamStatus
+from argus.app import App
+from argus.core.models import Clip, ClipStatus, StreamStatus
 
 SECRET = "s3cret-value-never-shown"
 

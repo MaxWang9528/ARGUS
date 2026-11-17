@@ -19,11 +19,11 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from livewatcher.core.config import LayoutConfig
+from argus.core.config import LayoutConfig
 
 from .ffmpeg_graph import blur_fit_geometry, crop_geometry, stacked_geometry
 
-log = logging.getLogger("livewatcher.render")
+log = logging.getLogger("argus.render")
 
 DEFAULT_OUT = (1080, 1920)
 
@@ -47,8 +47,8 @@ FONT_CANDIDATES = (
 def find_font() -> str | None:
     """A bold sans font file for the title banner, or None if none can be found.
 
-    ``LIVEWATCHER_FONT`` overrides the search."""
-    env = os.environ.get("LIVEWATCHER_FONT")
+    ``ARGUS_FONT`` overrides the search."""
+    env = os.environ.get("ARGUS_FONT")
     if env and Path(env).is_file():
         return env
     for cand in FONT_CANDIDATES:

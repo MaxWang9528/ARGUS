@@ -27,7 +27,7 @@ from ..core.events import EventBus
 from ..core.interfaces import WindowUnavailable
 from .buffer import BufferIndex, Segment
 
-log = logging.getLogger("livewatcher.capture")
+log = logging.getLogger("argus.capture")
 
 CUT_TIMEOUT_S = 300.0
 

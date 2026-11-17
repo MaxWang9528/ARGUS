@@ -37,7 +37,7 @@ from ..core.config import ConfigStore, Detection
 from ..core.events import EventBus, Topic
 from ..core.models import ChatMessage, PeakEvent, RateSample
 
-log = logging.getLogger("livewatcher.detect")
+log = logging.getLogger("argus.detect")
 
 MAD_TO_SD = 1.4826        # MAD of a normal distribution * this = its standard deviation
 MIN_SPREAD = 0.25         # msgs/s; floor for the spread so silent chat can't give huge z

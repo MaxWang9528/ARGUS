@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 from test_tiktok_browser import FakeContext, FakePage, FakePlaywright
 
-from livewatcher import cli
-from livewatcher.core.db import Database
-from livewatcher.upload import login
-from livewatcher.upload.tiktok_browser import NOT_LOGGED_IN, TikTokUploader
+from argus import cli
+from argus.core.db import Database
+from argus.upload import login
+from argus.upload.tiktok_browser import NOT_LOGGED_IN, TikTokUploader
 
 # ---- database ------------------------------------------------------------------------
 OLD_SCHEMA = """

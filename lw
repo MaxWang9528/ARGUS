@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Run livewatcher with the shared environment: ./lw run | demo | replay | login-tiktok
-VENV="${LIVEWATCHER_VENV:-$HOME/.venvs/livewatcher}"
-cd "$(dirname "$0")" && exec "$VENV/bin/python" -m livewatcher "$@"
+# Run argus with the shared environment: ./lw run | demo | replay | login-tiktok
+VENV="${ARGUS_VENV:-$HOME/.venvs/livewatcher}"
+cd "$(dirname "$0")" && exec "$VENV/bin/python" -m argus "$@"

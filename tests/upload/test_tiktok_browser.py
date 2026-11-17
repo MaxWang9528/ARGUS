@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from livewatcher.upload import tiktok_browser as tb
-from livewatcher.upload.tiktok_browser import (
+from argus.upload import tiktok_browser as tb
+from argus.upload.tiktok_browser import (
     SELECTORS,
     SPEC_KINDS,
     TikTokUploader,

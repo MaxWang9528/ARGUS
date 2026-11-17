@@ -16,14 +16,14 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from livewatcher.core.config import ConfigStore, LayoutConfig
-from livewatcher.core.events import EventBus
-from livewatcher.core.models import Clip
+from argus.core.config import ConfigStore, LayoutConfig
+from argus.core.events import EventBus
+from argus.core.models import Clip
 
 from .ffmpeg_graph import build_filtergraph, parse_resolution
 from .layouts import draw_preview, find_font
 
-log = logging.getLogger("livewatcher.render")
+log = logging.getLogger("argus.render")
 
 VIDEO_ARGS = ("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p")
 AUDIO_ARGS = ("-c:a", "aac", "-b:a", "128k", "-ac", "2")

@@ -1,4 +1,4 @@
-# livewatcher settings. Copy this file to config.toml and edit it.
+# ARGUS settings. Copy this file to config.toml and edit it.
 # config.toml is ignored by git, so secrets in it stay on this machine.
 
 [general]

@@ -1,5 +1,5 @@
 """A stand-in capture worker for Recorder tests: speaks the same JSON-lines protocol
-as ``python -m livewatcher.capture.recorder worker`` but makes up small segments."""
+as ``python -m argus.capture.recorder worker`` but makes up small segments."""
 
 from __future__ import annotations
 

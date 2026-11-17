@@ -7,8 +7,8 @@ import httpx
 import pytest
 from streamlink.exceptions import NoStreamsError, PluginError
 
-from livewatcher.capture.live_check import LiveChecker, streamlink_check
-from livewatcher.core.config import ConfigStore
+from argus.capture.live_check import LiveChecker, streamlink_check
+from argus.core.config import ConfigStore
 
 
 class FakePlugin:

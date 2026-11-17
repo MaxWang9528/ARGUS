@@ -30,7 +30,7 @@ from ..upload.tiktok_browser import classify_error
 if TYPE_CHECKING:
     from ..app import App
 
-log = logging.getLogger("livewatcher.upload")
+log = logging.getLogger("argus.upload")
 
 router = APIRouter()
 

@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 
-from livewatcher.core.events import Topic
-from livewatcher.core.fakes import FakeUploader
-from livewatcher.core.models import ClipStatus, UploadResult
-from livewatcher.upload.queue import INTERRUPTED, ClipUploadQueue
+from argus.core.events import Topic
+from argus.core.fakes import FakeUploader
+from argus.core.models import ClipStatus, UploadResult
+from argus.upload.queue import INTERRUPTED, ClipUploadQueue
 
 T0 = 1_800_000_000.0  # same as conftest.T0
 

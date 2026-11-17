@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import pytest
 
-from livewatcher.core.events import Topic
-from livewatcher.core.fakes import FakeUploader
-from livewatcher.core.models import ClipStatus, PeakEvent, UploadResult
-from livewatcher.upload import login
-from livewatcher.upload.queue import ClipUploadQueue, account_slot, choose_account
-from livewatcher.upload.tiktok_browser import (
+from argus.core.events import Topic
+from argus.core.fakes import FakeUploader
+from argus.core.models import ClipStatus, PeakEvent, UploadResult
+from argus.upload import login
+from argus.upload.queue import ClipUploadQueue, account_slot, choose_account
+from argus.upload.tiktok_browser import (
     CAPTCHA,
     LOGIN_PROMPT,
     NOT_LOGGED_IN,

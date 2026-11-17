@@ -7,14 +7,14 @@ import random
 
 import pytest
 
-from livewatcher.chat.twitch_irc import (
+from argus.chat.twitch_irc import (
     TwitchChatSource,
     _JoinLimiter,
     backoff_delay,
     parse_line,
     to_chat_message,
 )
-from livewatcher.core.events import Topic
+from argus.core.events import Topic
 
 REAL_PRIVMSG = (
     "@badge-info=subscriber/14;badges=subscriber/12,premium/1;client-nonce=7c1b2e;color=#FF4500;"

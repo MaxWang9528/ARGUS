@@ -13,8 +13,8 @@ import re
 
 import pytest
 
-from livewatcher.core.config import Config, LayoutConfig, Region
-from livewatcher.render.ffmpeg_graph import (
+from argus.core.config import Config, LayoutConfig, Region
+from argus.render.ffmpeg_graph import (
     blur_fit_geometry,
     build_filtergraph,
     crop_geometry,

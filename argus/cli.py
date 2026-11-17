@@ -47,7 +47,7 @@ def _delegate(target: str, args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="livewatcher")
+    parser = argparse.ArgumentParser(prog="argus")
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -74,10 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "replay":
         args.store = _load_store(args.config) if Path(args.config).exists() else ConfigStore()
-        return _delegate("livewatcher.detect.replay:main", args)
+        return _delegate("argus.detect.replay:main", args)
     if args.command == "login-tiktok":
         args.store = _load_store(args.config) if Path(args.config).exists() else ConfigStore()
-        return _delegate("livewatcher.upload.login:main", args)
+        return _delegate("argus.upload.login:main", args)
     return 1
 
 

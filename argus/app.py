@@ -28,17 +28,17 @@ from .core.events import EventBus, Topic
 from .core.interfaces import WindowUnavailable
 from .core.models import Clip, ClipStatus, LogLine, PeakEvent, RateSample
 
-log = logging.getLogger("livewatcher.app")
+log = logging.getLogger("argus.app")
 
 # component -> (module, class name, fake class)
 _REAL: dict[str, tuple[str, str, type]] = {
-    "chat": ("livewatcher.chat.twitch_irc", "TwitchChatSource", fakes.FakeChatSource),
-    "detector": ("livewatcher.detect.peak", "ChatPeakDetector", fakes.FakePeakDetector),
-    "recorder": ("livewatcher.capture.recorder", "Recorder", fakes.FakeRecorder),
-    "cutter": ("livewatcher.capture.cutter", "Cutter", fakes.FakeCutter),
-    "renderer": ("livewatcher.render.renderer", "FfmpegRenderer", fakes.FakeRenderer),
-    "uploader": ("livewatcher.upload.tiktok_browser", "TikTokUploader", fakes.FakeUploader),
-    "upload_queue": ("livewatcher.upload.queue", "ClipUploadQueue", fakes.FakeUploadQueue),
+    "chat": ("argus.chat.twitch_irc", "TwitchChatSource", fakes.FakeChatSource),
+    "detector": ("argus.detect.peak", "ChatPeakDetector", fakes.FakePeakDetector),
+    "recorder": ("argus.capture.recorder", "Recorder", fakes.FakeRecorder),
+    "cutter": ("argus.capture.cutter", "Cutter", fakes.FakeCutter),
+    "renderer": ("argus.render.renderer", "FfmpegRenderer", fakes.FakeRenderer),
+    "uploader": ("argus.upload.tiktok_browser", "TikTokUploader", fakes.FakeUploader),
+    "upload_queue": ("argus.upload.queue", "ClipUploadQueue", fakes.FakeUploadQueue),
 }
 
 
@@ -47,9 +47,9 @@ class ClipError(Exception):
 
 
 class BusLogHandler(logging.Handler):
-    """Forwards ``logging`` records from ``livewatcher.*`` to Topic.LOG.
+    """Forwards ``logging`` records from ``argus.*`` to Topic.LOG.
 
-    Use ``logging.getLogger("livewatcher.<area>")``. Pass ``extra={"streamer": name}``
+    Use ``logging.getLogger("argus.<area>")``. Pass ``extra={"streamer": name}``
     to tag a line with a streamer.
     """
 
@@ -61,7 +61,7 @@ class BusLogHandler(logging.Handler):
         level = record.levelname.lower()
         line = LogLine(
             ts=record.created, level=level if level in ("debug", "info", "warning", "error") else "error",
-            source=record.name.removeprefix("livewatcher."), streamer=getattr(record, "streamer", ""),
+            source=record.name.removeprefix("argus."), streamer=getattr(record, "streamer", ""),
             message=record.getMessage())
         try:
             self.loop.call_soon_threadsafe(self.bus.publish, Topic.LOG, line)
@@ -240,7 +240,7 @@ class App:
         self.demo, self.serve = demo, serve
         cfg = store.get()
         cfg.data_dir.mkdir(parents=True, exist_ok=True)
-        self.db = Database(cfg.data_dir / "livewatcher.db")
+        self.db = Database(cfg.data_dir / "argus.db")
         self.components: dict[str, str] = {}  # component -> "real" or "fake"
         common = {"store": store, "bus": self.bus}
         self.chat = self._make("chat", **common)
@@ -321,7 +321,7 @@ class App:
 
     async def _serve(self) -> None:
         try:
-            create_app = importlib.import_module("livewatcher.api.server").create_app
+            create_app = importlib.import_module("argus.api.server").create_app
         except (ImportError, AttributeError) as exc:
             log.warning("dashboard not available (%s)", exc)
             await asyncio.Event().wait()
@@ -405,7 +405,7 @@ class App:
 
     async def run(self) -> None:
         handler = BusLogHandler(self.bus, asyncio.get_running_loop())
-        root = logging.getLogger("livewatcher")
+        root = logging.getLogger("argus")
         root.addHandler(handler)
         root.setLevel(logging.INFO)
         jobs = [self._collect(), self.clips.run(), self.chat.run(), self.detector.run(),

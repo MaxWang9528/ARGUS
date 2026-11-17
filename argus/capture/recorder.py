@@ -7,7 +7,7 @@ out of the top N has its worker stopped and its buffer deleted.
 
 Pipeline (per streamer)
 -----------------------
-``python -m livewatcher.capture.recorder worker --channel <name> --out <dir> ...``
+``python -m argus.capture.recorder worker --channel <name> --out <dir> ...``
 
 The worker uses streamlink's Twitch plugin (same HLS fetching, low-latency prefetch
 and ad detection as the ``streamlink`` command) but, instead of joining everything
@@ -58,7 +58,7 @@ from .buffer import BufferIndex, Gap, Segment
 from .live_check import LiveChecker, LiveInfo
 from .snapshot import Snapshotter
 
-log = logging.getLogger("livewatcher.capture")
+log = logging.getLogger("argus.capture")
 
 TICK_S = 1.0
 IDLE_TIMEOUT_S = 60.0        # no worker event for this long: assume it hung, restart
@@ -73,7 +73,7 @@ WorkerArgv = Callable[[str, Path, Config], list[str]]
 
 def default_worker_argv(name: str, out_dir: Path, cfg: Config) -> list[str]:
     cap = cfg.capture
-    argv = [sys.executable, "-u", "-m", "livewatcher.capture.recorder", "worker",
+    argv = [sys.executable, "-u", "-m", "argus.capture.recorder", "worker",
             "--channel", name, "--out", str(out_dir), "--quality", cap.quality]
     if cap.low_latency:
         argv.append("--low-latency")
@@ -743,7 +743,7 @@ def _watch_stdin() -> None:
 
 
 def worker_main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="livewatcher.capture.recorder worker")
+    ap = argparse.ArgumentParser(prog="argus.capture.recorder worker")
     ap.add_argument("--channel", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--quality", default="720p60,720p,best")
@@ -812,5 +812,5 @@ def _exit(code: int) -> None:
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "worker":
         _exit(worker_main(sys.argv[2:]))
-    print("usage: python -m livewatcher.capture.recorder worker --channel NAME --out DIR", file=sys.stderr)
+    print("usage: python -m argus.capture.recorder worker --channel NAME --out DIR", file=sys.stderr)
     sys.exit(2)

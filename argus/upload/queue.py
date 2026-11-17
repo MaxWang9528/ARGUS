@@ -45,7 +45,7 @@ from ..core.models import Clip, ClipStatus, UploadResult
 from .login import profile_busy
 from .tiktok_browser import blocked_scope, check_video_file
 
-log = logging.getLogger("livewatcher.upload")
+log = logging.getLogger("argus.upload")
 
 DAY_S = 24 * 3600
 INTERRUPTED = ("the app stopped while this clip was uploading; check your TikTok profile "
