@@ -248,7 +248,7 @@
         </div>
         <div class="clip-main">
           <div class="replay">
-            <div class="chart-wrap replay-chart" :class="{ blank: !!replayText(c) }">
+            <div class="chart-wrap replay-chart" :class="{ blank: !!replayText(c), quiet: replayText(c) === 'No chat data for this clip' }">
               <div class="chart" data-testid="clip-chart" x-init="mountClipChart($el, c)"></div>
               <div class="chart-empty" x-show="replayText(c)" x-text="replayText(c)"></div>
             </div>

@@ -155,6 +155,7 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
         item.locator(".replay-chart .chart-empty", has_text="No chat data for this clip").wait_for(timeout=10_000)
     if shots:
         _clip_screenshots(page, server, shots)
+    _check_no_chat_data(page, server, shots)
 
     page.locator("[data-testid=nav-debug]").click()
     page.locator("[data-testid=peak-log] tbody tr").first.wait_for(timeout=5_000)
@@ -232,6 +233,19 @@ def _check_replay(page, item, chart) -> None:
     page.wait_for_function(f"el => Math.abs(parseFloat(el.dataset.playheadX) - {target}) < 3", arg=el, timeout=5_000)
     t = video.evaluate("v => v.currentTime")
     assert abs(t - float(chart.get_attribute("data-playhead"))) < 0.05 and t > 0
+    # Dragging seeks as it goes.
+    ob, cb = chart.locator(".u-over").bounding_box(), chart.bounding_box()
+    y = ob["y"] + ob["height"] / 2
+    page.mouse.move(ob["x"] + ob["width"] * 0.4, y)
+    page.mouse.down()
+    page.mouse.move(ob["x"] + ob["width"] * 0.6, y, steps=6)
+    page.mouse.up()
+    end = ob["x"] + ob["width"] * 0.6 - cb["x"]
+    page.wait_for_function(f"el => Math.abs(parseFloat(el.dataset.playheadX) - {end}) < 3", arg=el, timeout=5_000)
+    assert video.evaluate("v => v.currentTime") > t
+    # Scrubbing the paused video moves the playhead too.
+    video.evaluate("v => { v.currentTime = 0.5; }")
+    page.wait_for_function("el => Math.abs(parseFloat(el.dataset.playhead) - 0.5) < 0.02", arg=el, timeout=5_000)
 
 
 def _over_left(chart) -> float:
@@ -240,6 +254,9 @@ def _over_left(chart) -> float:
 
 def _clip_screenshots(page, server: DemoServer, shots: str) -> None:
     """Swap the demo's 16:9 test clip for a real 1080x1920 one, then shoot the Clips tab."""
+    if not shutil.which("ffmpeg"):
+        page.screenshot(path=f"{shots}/clips.png")
+        return
     with urllib.request.urlopen(server.url + "/api/clips") as r:
         clip = next(c for c in json.load(r) if c["status"] == "pending_review")
     dur = max(clip["window_end"] - clip["window_start"], 1)
@@ -264,5 +281,28 @@ def _clip_screenshots(page, server: DemoServer, shots: str) -> None:
     page.set_viewport_size({"width": 390, "height": 800})
     page.wait_for_timeout(400)
     page.screenshot(path=f"{shots}/clips-narrow.png", full_page=True)
+    page.set_viewport_size({"width": 820, "height": 1000})
+    page.wait_for_timeout(400)
+    page.screenshot(path=f"{shots}/clips-mid.png")
     page.set_viewport_size({"width": 1366, "height": 860})
     page.emulate_media(color_scheme="light")
+
+
+def _check_no_chat_data(page, server: DemoServer, shots: str | None) -> None:
+    """No rates, or no playable file: the chart says so quietly."""
+    with urllib.request.urlopen(server.url + "/api/clips") as r:
+        clip = next(c for c in json.load(r) if c["status"] == "pending_review")
+    item = page.locator(f"[data-testid=clip-item][data-id='{clip['id']}']")
+    empty = item.locator(".replay-chart .chart-empty", has_text="No chat data for this clip")
+    page.route("**/api/clips/*/rates", lambda route: route.fulfill(json=[]))
+    page.reload()
+    empty.wait_for(timeout=10_000)
+    assert item.locator("video").count() == 1  # the video still plays, there's just no chart
+    page.unroute("**/api/clips/*/rates")
+    # A render that isn't video: "No preview", and no chart either.
+    Path(clip["renders"][clip["active_layout"]]).write_bytes(b"not a video")
+    page.reload()
+    item.locator(".no-preview").wait_for(timeout=10_000)
+    empty.wait_for(timeout=10_000)
+    if shots:
+        page.screenshot(path=f"{shots}/clips-no-data.png")
