@@ -55,7 +55,8 @@ async def test_demo_pipeline_makes_a_clip(store):
     task = asyncio.create_task(app.run())
     try:
         await asyncio.sleep(0.5)
-        store.update({"detection": {"preroll_s": 1, "postroll_s": 0.5}})
+        store.update({"detection": {"preroll_s": 1, "postroll_s": 0.5,
+                                     "manual_preroll_s": 1, "manual_postroll_s": 0.5}})
         clip = app.clips.clip_now("alpha")
         for _ in range(100):
             await asyncio.sleep(0.2)

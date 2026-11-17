@@ -30,9 +30,12 @@ min_unique_chatters = 5
 end_ratio = 1.5                # the peak ends when chat falls below this many times normal
 cooldown_s = 90
 min_sustain_s = 10             # chat must stay raised this long; shorter bursts are spikes, not clipped
-preroll_s = 25                 # seconds kept before the peak
-postroll_s = 6                 # seconds kept after the peak ends
-max_clip_s = 60
+preroll_s = 8                  # seconds kept before chat starts rising (chat reacts a few s after the moment)
+postroll_s = 3                 # seconds kept after chat falls back...
+max_after_peak_s = 12          # ...but never more than this after the busiest second
+max_clip_s = 35
+manual_preroll_s = 20          # "Clip now": seconds before the press
+manual_postroll_s = 11         # and after it
 ignore_users = ["nightbot", "streamelements", "moobot", "fossabot"]
 
 [capture]
@@ -89,9 +92,10 @@ max_queue_age_h = 6              # a queued clip with no free slot for this many
 # max_uploads_per_day = 3
 # min_minutes_between_uploads = 90
 
-# Twitch channels to watch, the most popular first, favouring big variety
-# streamers. Every one is checked for being live and has its chat read; only the top
-# general.max_streamers live ones are recorded. Set enabled = false to skip one.
+# Twitch channels to watch: English-speaking streamers, the ones with the youngest and
+# fastest-growing audiences first, then the biggest established names. Every one is
+# checked for being live and has its chat read; only the top general.max_streamers live
+# ones are recorded (ranked by live viewers). Set enabled = false to skip one.
 #
 # Every entry can also set its own layout and override any [detection] setting:
 # [[streamers]]
@@ -108,49 +112,52 @@ max_queue_age_h = 6              # a queued clip with no free slot for this many
 name = "kaicenat"
 
 [[streamers]]
-name = "xqc"
-
-[[streamers]]
 name = "jynxzi"
 
 [[streamers]]
 name = "caseoh_"
 
 [[streamers]]
-name = "ibai"
-
-[[streamers]]
-name = "auronplay"
-
-[[streamers]]
-name = "rubius"
-
-[[streamers]]
-name = "zackrawrr"
-
-[[streamers]]
-name = "lacy"
-
-[[streamers]]
-name = "summit1g"
+name = "joe_bartolozzi"
 
 [[streamers]]
 name = "stableronaldo"
 
 [[streamers]]
+name = "jasontheween"
+
+[[streamers]]
+name = "plaqueboymax"
+
+[[streamers]]
+name = "lacy"
+
+[[streamers]]
 name = "clix"
 
 [[streamers]]
-name = "shroud"
+name = "ishowspeed"
 
 [[streamers]]
-name = "elmariana"
+name = "fanum"
 
 [[streamers]]
-name = "juansguarnizo"
+name = "agent00"
 
 [[streamers]]
-name = "thegrefg"
+name = "duke"
+
+[[streamers]]
+name = "marlon"
+
+[[streamers]]
+name = "rayasianboy"
+
+[[streamers]]
+name = "theburntpeanut"
+
+[[streamers]]
+name = "xqc"
 
 [[streamers]]
 name = "tfue"
@@ -159,133 +166,136 @@ name = "tfue"
 name = "ninja"
 
 [[streamers]]
-name = "plaqueboymax"
+name = "typicalgamer"
 
 [[streamers]]
-name = "fanum"
+name = "sypherpk"
 
 [[streamers]]
-name = "sodapoppin"
+name = "bugha"
 
 [[streamers]]
-name = "hasanabi"
+name = "peterbot"
 
 [[streamers]]
-name = "tarik"
+name = "mrsavage"
 
 [[streamers]]
-name = "jasontheween"
-
-[[streamers]]
-name = "alanzoka"
-
-[[streamers]]
-name = "pokimane"
-
-[[streamers]]
-name = "ishowspeed"
-
-[[streamers]]
-name = "moistcr1tikal"
-
-[[streamers]]
-name = "rivers_gg"
-
-[[streamers]]
-name = "timthetatman"
-
-[[streamers]]
-name = "nickmercs"
-
-[[streamers]]
-name = "agent00"
-
-[[streamers]]
-name = "illojuan"
-
-[[streamers]]
-name = "sykkuno"
-
-[[streamers]]
-name = "buddha"
-
-[[streamers]]
-name = "montanablack88"
-
-[[streamers]]
-name = "squeezie"
-
-[[streamers]]
-name = "gaules"
-
-[[streamers]]
-name = "lirik"
-
-[[streamers]]
-name = "tommyinnit"
-
-[[streamers]]
-name = "quackity"
+name = "symfuhny"
 
 [[streamers]]
 name = "tubbo"
 
 [[streamers]]
-name = "loltyler1"
+name = "quackity"
 
 [[streamers]]
-name = "ohnepixel"
+name = "georgenotfound"
 
 [[streamers]]
-name = "papaplatte"
+name = "realkatieb"
 
 [[streamers]]
-name = "trymacs"
+name = "itsspoit"
 
 [[streamers]]
-name = "gotaga"
+name = "vanillamace"
 
 [[streamers]]
-name = "kamet0"
+name = "evelynomadera"
 
 [[streamers]]
-name = "cellbit"
+name = "yourragegaming"
+
+[[streamers]]
+name = "bendadonnn"
+
+[[streamers]]
+name = "silky"
+
+[[streamers]]
+name = "kaysan"
+
+[[streamers]]
+name = "adapt"
 
 [[streamers]]
 name = "brucedropemoff"
 
 [[streamers]]
-name = "esfandtv"
+name = "tylil"
 
 [[streamers]]
-name = "emiru"
+name = "lospollostv"
 
 [[streamers]]
-name = "joshimuz"
+name = "ddg"
+
+[[streamers]]
+name = "berleezy"
 
 [[streamers]]
 name = "extraemily"
 
 [[streamers]]
-name = "cyr"
+name = "emiru"
 
 [[streamers]]
-name = "nmplol"
+name = "cinna"
 
 [[streamers]]
-name = "ramee"
+name = "valkyrae"
 
 [[streamers]]
-name = "kyle"
+name = "pokimane"
 
 [[streamers]]
-name = "koil"
+name = "sykkuno"
 
 [[streamers]]
-name = "ssaab"
+name = "ludwig"
 
 [[streamers]]
-name = "penta"
+name = "moistcr1tikal"
 
 [[streamers]]
-name = "jerma985"
+name = "loltyler1"
+
+[[streamers]]
+name = "tenz"
+
+[[streamers]]
+name = "tarik"
+
+[[streamers]]
+name = "ohnepixel"
+
+[[streamers]]
+name = "shroud"
+
+[[streamers]]
+name = "nickmercs"
+
+[[streamers]]
+name = "timthetatman"
+
+[[streamers]]
+name = "summit1g"
+
+[[streamers]]
+name = "zackrawrr"
+
+[[streamers]]
+name = "hasanabi"
+
+[[streamers]]
+name = "aussieantics"
+
+[[streamers]]
+name = "iitztimmy"
+
+[[streamers]]
+name = "buckefps"
+
+[[streamers]]
+name = "sodapoppin"

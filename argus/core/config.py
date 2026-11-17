@@ -84,9 +84,12 @@ class Detection(_Model):
     # fall); shorter ones are one-off spikes and aren't clipped. Smoothing stretches a lone
     # burst to about smooth_s + 1 s.
     min_sustain_s: float = Field(10, ge=0)
-    preroll_s: float = 25
-    postroll_s: float = 6
-    max_clip_s: float = 60
+    preroll_s: float = 8          # kept before chat starts rising (it reacts a few s late)
+    postroll_s: float = 3         # kept after chat falls back...
+    max_after_peak_s: float = 12  # ...but never more than this after the busiest moment
+    max_clip_s: float = 35
+    manual_preroll_s: float = 20  # "Clip now": seconds before the press
+    manual_postroll_s: float = 11  # and after it
     ignore_users: list[str] = Field(
         default_factory=lambda: ["nightbot", "streamelements", "moobot", "fossabot"]
     )

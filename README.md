@@ -78,7 +78,7 @@ Other commands:
   - at least `min_unique_chatters` (default 5) different people are chatting
   - the `cooldown_s` (90 s) since the last peak has passed
   - there is at least 60 s of chat history (the warm-up, which restarts after 2 minutes of total silence)
-- A peak **ends** when the rate falls below `baseline × end_ratio` (1.5), or when the clip would exceed `max_clip_s` (60 s).
+- A peak **ends** when the rate falls below `baseline × end_ratio` (1.5), or when it reaches `max_clip_s` (35 s).
 - **Sustained chatter only:** a peak counts only if chat stayed raised for at least `min_sustain_s` (10 s), from its rise to its fall. Smoothing stretches a one-off burst (a single second of spam, or one batch of messages) to about 6–7 s, so it is logged as "spike ignored" and not clipped, and it doesn't start the cooldown. Twitch delivers busy chats in batches with empty seconds between them, so this measures the length of the raised stretch rather than counting hot seconds. Replaying real chat logs, the 10 s default dropped only lone 6–7 s spikes.
 - Thresholds are re-read on every bin, so changes from the dashboard's Debug sliders apply immediately. Any `[detection]` key can be overridden per streamer.
 - The detector publishes one `RateSample` per bin, which feeds the graphs, and one `PeakEvent` when a peak ends.
@@ -113,8 +113,8 @@ Other commands:
 - The cutter shifts every window by `capture.sync_offset_s`, which is **−2.0 s** by default. A positive value moves clips later.
   - −2.0 is an estimate of viewer delay, not a measurement.
   - To tune it, clip a moment you recognise on a live stream and check it's in the clip. The Debug tab has a slider for this.
-- **Clip window** = `peak_start − preroll_s` (25 s) to `peak_end + postroll_s` (6 s), capped at `max_clip_s` (60 s).
-- **Clip now** shifts that window 5 s later: 20 s before the press to 11 s after it, so the clip includes what happens just after you press.
+- **Clip window** (auto): from `preroll_s` (8 s) before chat started rising, to `postroll_s` (3 s) after it fell back, but no later than `max_after_peak_s` (12 s) after the busiest second, and at most `max_clip_s` (35 s) long. Chat often stays loud long after the moment, so the end is tied to the peak. On recorded peaks this gives about 13–20 s before the peak and 25–31 s in all.
+- **Clip now**: `manual_preroll_s` (20 s) before the press to `manual_postroll_s` (11 s) after it.
 
 ### 6. Clip life cycle (`argus/app.py`, `ClipService`)
 

@@ -73,9 +73,6 @@ class ClipService:
     """Turns peaks into clips and carries out the dashboard's clip actions."""
 
     WAIT_GRACE_S = 120.0  # how long past window_end to wait for the buffer
-    # "Clip now": the window is shifted this much later than an automatic clip's
-    # (5 s less before the press, 5 s more after it).
-    MANUAL_SHIFT_S = 5.0
 
     def __init__(self, app: App) -> None:
         self.app = app
@@ -122,9 +119,16 @@ class ClipService:
         if peak.source == "auto" and not cfg.general.auto_clip:
             log.info("peak ignored: auto-clip is off", extra={"streamer": peak.streamer})
             return None
-        shift = self.MANUAL_SHIFT_S if peak.source == "manual" else 0.0
-        start = peak.ts_start - det.preroll_s + shift
-        end = min(peak.ts_end + det.postroll_s + shift, start + det.max_clip_s)
+        if peak.source == "manual":
+            start = peak.ts_start - det.manual_preroll_s
+            end = peak.ts_end + det.manual_postroll_s
+        else:
+            # Short and centred on the moment: a little before chat started rising, and
+            # after it, until chat calms down but no longer than max_after_peak_s past
+            # the busiest second (chat can stay loud long after the moment itself).
+            start = peak.ts_start - det.preroll_s
+            end = min(peak.ts_end + det.postroll_s, peak.ts_peak + det.max_after_peak_s)
+        end = min(max(end, start + 1.0), start + det.max_clip_s)
         if status.buffer_start is not None and start < status.buffer_start - 1.0 and peak.source == "auto":
             log.info("peak ignored: buffer doesn't cover the pre-roll yet", extra={"streamer": peak.streamer})
             return None
@@ -174,7 +178,7 @@ class ClipService:
 
     # ---- actions the dashboard calls ----------------------------------------
     def clip_now(self, streamer: str) -> Clip:
-        """Clip the last ``preroll_s`` seconds of a streamer, by hand."""
+        """Clip a streamer by hand: manual_preroll_s before now to manual_postroll_s after."""
         now = time.time()
         peak = PeakEvent(streamer=streamer.lower(), ts_start=now, ts_peak=now, ts_end=now, source="manual")
         clip = self.on_peak(peak)

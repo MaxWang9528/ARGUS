@@ -41,7 +41,8 @@ def make_live(lw: App, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(lw.recorder, "status", status)
     monkeypatch.setattr(lw.recorder, "window_ready", lambda streamer, end_ts: time.time() >= end_ts)
-    lw.store.update({"detection": {"preroll_s": 1, "postroll_s": 0.2}})
+    lw.store.update({"detection": {"preroll_s": 1, "postroll_s": 0.2,
+                                  "manual_preroll_s": 1, "manual_postroll_s": 0.2}})
 
 
 def saved_clip(lw: App, status: ClipStatus = ClipStatus.PENDING_REVIEW, *, streamer: str = "alpha",

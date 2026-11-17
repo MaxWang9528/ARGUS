@@ -45,7 +45,7 @@ class DemoServer:
         self.port = _free_port()
         cfg = Config(
             general=General(data_dir=str(data_dir), dashboard_port=self.port),
-            detection=Detection(preroll_s=3, postroll_s=1),
+            detection=Detection(preroll_s=3, postroll_s=1, manual_preroll_s=3, manual_postroll_s=1),
             streamers=[Streamer(name=n) for n in DEMO_STREAMERS])
         self.app = App(ConfigStore(config=cfg), demo=True)
         self.url = f"http://127.0.0.1:{self.port}"

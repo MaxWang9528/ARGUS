@@ -173,19 +173,27 @@ def test_clip_rates_saved_and_read_back(store: ConfigStore) -> None:
     assert not app._clip_rates_path(clip.id).exists()
 
 
-def test_clip_now_window_is_shifted_later(store: ConfigStore, monkeypatch) -> None:
+def test_clip_windows(store: ConfigStore, monkeypatch) -> None:
+    from argus.core.models import PeakEvent
     app = App(store, demo=True, serve=False)
     monkeypatch.setattr(app.clips, "_spawn", lambda coro: coro.close())
     monkeypatch.setattr(app.recorder, "status", _Status("anything"))
-    det = store.get().detection_for("alpha")  # preroll 25, postroll 6
+    det = store.get().detection_for("alpha")
+    # Clip now: manual_preroll_s (20) before the press, manual_postroll_s (11) after
     press = _peak("manual")
     manual = app.clips.on_peak(press)
-    assert manual.window_start == press.ts_start - det.preroll_s + 5  # 20 s before the press
-    assert manual.window_end == press.ts_end + det.postroll_s + 5     # 11 s after it
-    peak = _peak("auto")
-    auto = app.clips.on_peak(peak)
-    assert auto.window_start == peak.ts_start - det.preroll_s         # automatic clips unchanged
-    assert auto.window_end == peak.ts_end + det.postroll_s
+    assert manual.window_start == press.ts_start - det.manual_preroll_s == press.ts_start - 20
+    assert manual.window_end == press.ts_end + det.manual_postroll_s == press.ts_end + 11
+    # auto, short peak: preroll before the rise, postroll after the end
+    t = time.time()
+    short = PeakEvent(streamer="alpha", ts_start=t, ts_peak=t + 5, ts_end=t + 9)
+    c = app.clips.on_peak(short)
+    assert (c.window_start, c.window_end) == (t - det.preroll_s, t + 9 + det.postroll_s)
+    # auto, chat stays loud long after the busiest second: cut max_after_peak_s after it
+    long = PeakEvent(streamer="alpha", ts_start=t, ts_peak=t + 5, ts_end=t + 40)
+    c = app.clips.on_peak(long)
+    assert c.window_end == t + 5 + det.max_after_peak_s
+    assert c.window_end - c.window_start <= det.max_clip_s
 
 
 def test_offline_peak_asks_for_a_live_check(store: ConfigStore, monkeypatch) -> None:
