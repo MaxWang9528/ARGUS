@@ -87,7 +87,7 @@
     <article class="focus" data-testid="focus" :data-name="focused.name">
       <div class="monitor big" :class="monitorClass(focused)">
         <template x-if="showLive(focused)">
-          <video muted autoplay playsinline x-init="attachLive($el, focused.name)"></video>
+          <video autoplay playsinline data-testid="focus-video" x-init="attachLive($el, focused.name, true)"></video>
         </template>
         <template x-if="!showLive(focused) && snapUrl(focused.name)">
           <img :src="snapUrl(focused.name)" :alt="'Latest frame from ' + focused.name">
@@ -101,6 +101,9 @@
           <span class="viewer-pill" x-show="focused.status.live && focused.status.viewers != null" x-text="viewersText(focused)"></span>
           <span class="buffer-pill" x-show="bufferText(focused)" x-text="bufferText(focused)"></span>
         </div>
+        <button type="button" class="sound-btn" data-testid="focus-sound" x-show="showLive(focused)"
+                :aria-pressed="!focusMuted" :title="focusMuted ? 'Turn the sound on' : 'Mute'"
+                @click.stop="toggleFocusSound()" x-text="focusMuted ? '🔇 Sound off' : '🔊 Sound on'"></button>
       </div>
       <div class="focus-side">
         <div class="focus-head">
@@ -322,14 +325,6 @@
   </template>
 
   <div class="clips-layout" :style="'--clip-size: ' + clipSize">
-  <aside class="size-rail" aria-label="Clip size">
-    <span class="rail-label">Clip</span>
-    <input type="range" min="25" max="90" step="1" data-testid="clip-size"
-           aria-label="Clip size: how much of the screen the video takes compared with the chat graph"
-           :value="clipSize" @input="setClipSize(+$event.target.value)">
-    <span class="rail-label">Graph</span>
-    <span class="rail-value" x-text="clipSize + '%'"></span>
-  </aside>
   <div class="clip-list">
     <template x-for="c in tabClips()" :key="c.id">
       <article class="card clip" data-testid="clip-item" :data-status="c.status" :data-id="c.id">
@@ -352,6 +347,12 @@
             </div>
           </template>
         </div>
+        <div class="clip-split" role="separator" aria-orientation="vertical" tabindex="0" data-testid="clip-split"
+             aria-label="Drag to resize the clip and the graph (every clip on the page)"
+             :aria-valuenow="clipSize" aria-valuemin="25" aria-valuemax="90"
+             :title="'Drag left or right to resize every clip (' + clipSize + '%)'"
+             @pointerdown="startClipDrag($event)"
+             @keydown.left.prevent="setClipSize(clipSize - 2)" @keydown.right.prevent="setClipSize(clipSize + 2)"><i></i></div>
         <div class="clip-main">
           <div class="replay">
             <div class="chart-wrap replay-chart" :class="{ blank: !!replayText(c), quiet: replayText(c) === 'No chat data for this clip' }">

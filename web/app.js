@@ -38,6 +38,8 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+let focusVideoEl = null;  // the focus view's <video>; kept out of Alpine's reactive state
+
 async function api(method, path, body) {
   const opts = { method, headers: {} };
   if (body !== undefined) {
@@ -820,8 +822,11 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    attachLive(video, name) {
+    attachLive(video, name, sound = false) {
       const src = `/api/streamers/${encodeURIComponent(name)}/live/live.m3u8`;
+      // Stream cards are always muted; the focus view plays sound unless muted by hand.
+      video.muted = sound ? this.focusMuted : true;
+      if (sound) focusVideoEl = video;
       const entry = { name, hls: null, io: null };
       players.set(video, entry);
       const start = () => {
@@ -843,7 +848,10 @@ document.addEventListener('alpine:init', () => {
         } else {
           this.liveFailed[name] = true;
         }
-        video.play?.().catch(() => {});
+        video.play?.().catch(() => {
+          // Sound needs a user gesture first; fall back to muted and show the button.
+          if (sound && !video.muted) { video.muted = true; this.focusMuted = true; video.play().catch(() => {}); }
+        });
       };
       const stop = () => { entry.hls?.destroy(); entry.hls = null; video.pause(); };
       // Re-sorting by viewers moves cards, and moving a <video> pauses it: start it again.
@@ -948,6 +956,7 @@ document.addEventListener('alpine:init', () => {
       { id: 'failed', label: 'Failed, dropped and rejected' },
     ],
     confirmDeleteClip: null,
+    focusMuted: false,  // the focus view's sound; stays as you set it while switching streams
     clipSize: (() => { try { const v = +localStorage.getItem('argus.clipSize'); return v >= 25 && v <= 90 ? v : 70; } catch { return 70; } })(),
     tabStatuses: {
       review: ['pending_review'],
@@ -1264,8 +1273,41 @@ document.addEventListener('alpine:init', () => {
 
     /* ---- config ------------------------------------------------------------ */
     get autoUpload() { return !!this.config?.general.auto_upload; },
-    setClipSize(v) {
+    toggleFocusSound() {
+      this.focusMuted = !this.focusMuted;
+      const v = focusVideoEl;
+      if (v && v.isConnected) { v.muted = this.focusMuted; v.play().catch(() => {}); }
+    },
+
+    // Divider between a clip and its graph: drag to set the (page-wide) clip size.
+    startClipDrag(ev) {
+      if (ev.button !== 0) return;
+      const handle = ev.currentTarget;
+      const player = handle.parentElement.querySelector('.clip-player');
+      if (!player) return;
+      ev.preventDefault();
+      const x0 = ev.clientX, w0 = player.getBoundingClientRect().width, s0 = this.clipSize;
+      handle.setPointerCapture(ev.pointerId);
+      handle.classList.add('dragging');
+      document.body.classList.add('resizing-clips');
+      // The player's width is proportional to the size, so scale the size by the width.
+      const move = e => { if (w0 > 0) this.setClipSize(s0 * (w0 + e.clientX - x0) / w0, false); };
+      const end = () => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', end);
+        handle.removeEventListener('pointercancel', end);
+        handle.classList.remove('dragging');
+        document.body.classList.remove('resizing-clips');
+        this.setClipSize(this.clipSize);  // remember it
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', end);
+      handle.addEventListener('pointercancel', end);
+    },
+
+    setClipSize(v, save = true) {
       this.clipSize = Math.min(90, Math.max(25, Math.round(v)));
+      if (!save) return;
       try { localStorage.setItem('argus.clipSize', String(this.clipSize)); } catch { /* private window: not remembered */ }
     },
     get autoClip() { return !!this.config && this.config.general.auto_clip !== false; },
