@@ -54,6 +54,9 @@ class StreamStatus(BaseModel):
     live: bool = False
     title: str = ""
     category: str = ""  # Twitch category (game) from the last live check, "" if unknown
+    viewers: int | None = None  # viewer count from the last live check, None if unknown
+    # False when the streamer is live but outside general.max_streamers: not recorded or clipped.
+    watched: bool = True
     recorder_state: Literal["stopped", "starting", "recording", "error"] = "stopped"
     buffer_start: float | None = None  # chat-time range the buffer covers
     buffer_end: float | None = None
@@ -88,6 +91,8 @@ class Clip(BaseModel):
     created_at: float = Field(default_factory=time.time)
     error: str = ""
     debug_screenshot: str | None = None
+    score: float = 0.0  # the peak's rate / baseline; ranks clips when upload slots are short
+    account: str = ""   # TikTok account it was (or is being) uploaded to
 
     @property
     def out_path(self) -> str | None:

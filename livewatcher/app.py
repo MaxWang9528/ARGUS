@@ -116,6 +116,9 @@ class ClipService:
             if recheck is not None:
                 recheck()
             return None
+        if not status.watched:
+            log.info("peak ignored: outside max_streamers, not recorded", extra={"streamer": peak.streamer})
+            return None
         wanted = {c.strip().lower() for c in cfg.general.clip_categories if c.strip()}
         if wanted and peak.source == "auto" and status.category.strip().lower() not in wanted:
             log.info("peak ignored: playing %s, not %s", status.category or "an unknown category",
@@ -130,7 +133,7 @@ class ClipService:
         clip = Clip(
             streamer=peak.streamer, peak_id=peak.id, window_start=start, window_end=end,
             active_layout=cfg.layout_for(peak.streamer).layout,
-            caption=cfg.tiktok.caption_template.format(streamer=peak.streamer))
+            caption=cfg.tiktok.caption_template.format(streamer=peak.streamer), score=peak.score)
         self._save(clip)
         self._spawn(self._process(clip))
         return clip

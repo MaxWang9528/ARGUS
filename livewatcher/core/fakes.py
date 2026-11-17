@@ -12,6 +12,7 @@ import statistics
 import time
 from collections import deque
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw
 
@@ -146,8 +147,13 @@ class FakeRecorder:
         buf = self.store.get().capture.buffer_minutes * 60
         return StreamStatus(
             streamer=streamer.lower(), live=self._running, title="Fake stream for the demo", category="Grand Theft Auto VI",
+            viewers=self._fake_viewers(streamer),
             recorder_state="recording" if self._running else "stopped",
             buffer_start=max(self._started, now - buf), buffer_end=now)
+
+    @staticmethod
+    def _fake_viewers(streamer: str) -> int:
+        return 1000 + (sum(map(ord, streamer.lower())) * 7919) % 50000
 
     def window_ready(self, streamer: str, end_ts: float) -> bool:
         if not self._running:
@@ -228,9 +234,11 @@ class FakeUploader:
         self.store, self.bus, self.delay_s = store, bus, delay_s
         self.results = list(results or [])  # scripted results for tests, used in order
         self.calls: list[tuple[str, str, bool]] = []
+        self.accounts: list[str] = []  # account name per call
 
-    async def upload(self, clip: Clip, caption: str, dry_run: bool) -> UploadResult:
+    async def upload(self, clip: Clip, caption: str, dry_run: bool, account: Any = None) -> UploadResult:
         self.calls.append((clip.id, caption, dry_run))
+        self.accounts.append(account.name if account is not None else "")
         await asyncio.sleep(self.delay_s)
         if self.results:
             return self.results.pop(0)

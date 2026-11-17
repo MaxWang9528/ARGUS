@@ -107,3 +107,32 @@ JSON bodies are the pydantic models dumped with `model_dump(mode="json")`. Error
 | `WS /api/ws` | server sends `{"topic": "<topic>", "data": {...}}` for `rate`, `peak`, `clip`, `stream_status`, `snapshot`, `config_changed`, `log` (never `chat`) | `app.bus.subscribe` |
 
 The static dashboard is served from `web/` at `/`.
+
+## Popularity, max streamers, multiple TikTok accounts (Phase 3)
+
+### Streamers (branch `feat/popular`)
+- `StreamStatus.viewers` (int or None) comes from every live check: Helix `viewer_count` when `[twitch]` keys are set, otherwise looked up without keys. Unknown is `None`, and sorts last.
+- `general.max_streamers` (0 = no limit): at each live check the recorder ranks enabled live streamers as **(category in `clip_categories` first, then viewers, highest first)** and records only the top N. The others get `StreamStatus.watched = False`, no recorder process and no buffer. Their chat is still read and their rate is still published.
+  - To avoid churn, a watched streamer is only displaced by one with at least 20% more viewers.
+  - `ClipService` ignores peaks from unwatched streamers.
+- `config.example.toml` lists many streamers, the most popular first.
+
+### Accounts (branch `feat/accounts`)
+- `cfg.tiktok_accounts()` gives the accounts with `browser_profile_dir` filled in. An empty `tiktok.accounts` means one implicit account, `default`, that uses the old `[tiktok]` profile, cookies and limits.
+- `Uploader.upload(clip, caption, dry_run, account=None)`: `account` picks the profile.
+- **Choosing the clip:** among `queued` clips, manual clips go first, then the highest `clip.score` (peak rate / baseline), then the oldest. A clip queued longer than `tiktok.max_queue_age_h` (0 = never) becomes `dropped` with "expired: no upload slot within N h".
+- **Choosing the account:**
+  - Candidates are the enabled accounts with a free slot: fewer than `max_uploads_per_day` real uploads in the last 24 h, and at least `min_minutes_between_uploads` since that account's last one.
+  - With `tiktok.cycle_accounts` on, it takes the next candidate after the account used last (round robin); with it off, the first candidate in list order.
+  - With no candidate the clip stays `queued` and the queue reports why.
+- Dry runs don't count toward limits and aren't limited, but they still pick an account the same way, so each account's login can be tested.
+- `clip.account` is set when the upload starts. The `uploads` table gains an `account` column, and old rows count as `default`.
+- Accounts are added, edited and removed through `PATCH /api/config` with the whole `tiktok.accounts` list. Removing an account leaves its profile folder on disk.
+
+| Method and path | Does |
+|---|---|
+| `GET /api/accounts` | `[{name, enabled, profile_dir, logged_in: bool|null, login_open: bool, uploads_24h, max_uploads_per_day, min_minutes_between_uploads, last_upload_ts: float|null, next_free_ts: float|null}]`. `logged_in` is the last known check, `null` if never checked. |
+| `POST /api/accounts/{name}/login` | Opens a visible browser window on that account's profile at TikTok's login page; 202 `{login_open: true}`, 409 if one is already open, 404 if the account is unknown. When the window is closed the app checks the login again. |
+| `POST /api/accounts/{name}/check` | Headless login check: `{logged_in: bool}` |
+| `GET /api/upload` | `{cycle: bool, next_account: str|null, queued: int, waiting_reason: str|null, paused_reason: str|null}` |
+| CLI | `./lw login-tiktok [--account NAME]` (default: the first account) |

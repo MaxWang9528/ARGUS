@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from .config import LayoutConfig
+from .config import LayoutConfig, TikTokAccount
 from .models import Clip, StreamStatus, UploadResult
 
 
@@ -86,7 +86,10 @@ class Uploader(Protocol):
     """Branch D. Uploads one rendered clip. Must not raise for expected failures:
     return an UploadResult instead."""
 
-    async def upload(self, clip: Clip, caption: str, dry_run: bool) -> UploadResult: ...
+    async def upload(self, clip: Clip, caption: str, dry_run: bool,
+                     account: TikTokAccount | None = None) -> UploadResult:
+        """``account`` picks the browser profile; None = the first of cfg.tiktok_accounts()."""
+        ...
 
 
 @runtime_checkable

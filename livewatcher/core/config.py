@@ -35,6 +35,10 @@ class General(_Model):
     # Only clip peaks automatically while the stream's Twitch category is one of these
     # (case-insensitive). Empty: any category. Manual "clip now" ignores it.
     clip_categories: list[str] = Field(default_factory=list)
+    # Record at most this many live streamers at once (0 = no limit). Picked in order:
+    # streamers in clip_categories first, then by viewer count, highest first. The rest
+    # are still checked and their chat is still read, but they aren't recorded or clipped.
+    max_streamers: int = Field(0, ge=0)
 
 
 class Twitch(_Model):
@@ -77,6 +81,17 @@ class Render(_Model):
     burn_title: bool = True
 
 
+class TikTokAccount(_Model):
+    """One TikTok account to post to. Each has its own logged-in browser profile."""
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")  # also the profile folder name
+    enabled: bool = True
+    browser_profile_dir: str = ""  # "" = <data_dir>/accounts/<name>/browser_profile
+    cookies_file: str = ""
+    max_uploads_per_day: int = Field(6, ge=0)
+    min_minutes_between_uploads: int = Field(45, ge=0)
+
+
 class TikTok(_Model):
     browser_profile_dir: str = "~/.local/share/livewatcher/browser_profile"
     browser_channel: str = "chromium"
@@ -87,8 +102,16 @@ class TikTok(_Model):
     # click Save draft, so the clip lands in TikTok's drafts but is never posted.
     dry_run_mode: Literal["stop", "draft"] = "stop"
     caption_template: str = "{streamer} on Twitch 🔴 #{streamer} #twitch #clips"
-    max_uploads_per_day: int = 6
-    min_minutes_between_uploads: int = 45
+    max_uploads_per_day: int = 6           # used by the implicit "default" account only
+    min_minutes_between_uploads: int = 45  # used by the implicit "default" account only
+    # Accounts to post to. Empty = one implicit account "default" that uses
+    # browser_profile_dir, cookies_file and the two limits above.
+    accounts: list[TikTokAccount] = Field(default_factory=list)
+    # On: each upload goes to the next enabled account with a free slot, in turn.
+    # Off: always the first enabled account with a free slot.
+    cycle_accounts: bool = False
+    # A queued clip that hasn't found a slot within this many hours is dropped (0 = never).
+    max_queue_age_h: float = Field(6, ge=0)
 
 
 class Region(_Model):
@@ -139,6 +162,20 @@ class Config(_Model):
     @property
     def data_dir(self) -> Path:
         return Path(os.path.expanduser(self.general.data_dir))
+
+    def tiktok_accounts(self) -> list[TikTokAccount]:
+        """The configured accounts, or the implicit "default" one when none are listed.
+        ``browser_profile_dir`` is always filled in (expanded, absolute)."""
+        tk = self.tiktok
+        accounts = tk.accounts or [TikTokAccount(
+            name="default", browser_profile_dir=tk.browser_profile_dir, cookies_file=tk.cookies_file,
+            max_uploads_per_day=tk.max_uploads_per_day,
+            min_minutes_between_uploads=tk.min_minutes_between_uploads)]
+        out = []
+        for a in accounts:
+            d = a.browser_profile_dir or str(self.data_dir / "accounts" / a.name / "browser_profile")
+            out.append(a.model_copy(update={"browser_profile_dir": str(Path(os.path.expanduser(d)))}))
+        return out
 
     def enabled_streamers(self) -> list[Streamer]:
         return [s for s in self.streamers if s.enabled]
