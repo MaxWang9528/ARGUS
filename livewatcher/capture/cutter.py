@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -42,6 +43,16 @@ def cut_cmd(ffmpeg: str, inputs: list[str], offset_s: float, duration_s: float, 
         "-af", "aresample=async=1", "-c:a", "aac", "-b:a", "160k",
         "-movflags", "+faststart", "-f", "mp4", out,
     ]
+
+
+def ffmpeg_failure(what: str, rc: int | None, stderr: bytes, argv: list[str]) -> str:
+    """An error message that always says why: stderr, else the exit code (a negative
+    code is a signal, e.g. -11 for a crash) and the command line."""
+    text = stderr.decode(errors="replace").strip()[-500:]
+    how = f"exit code {rc}" + (f" (killed by signal {-rc})" if rc is not None and rc < 0 else "")
+    if text:
+        return f"ffmpeg {what} failed ({how}): {text}"
+    return f"ffmpeg {what} failed ({how}, no stderr): {shlex.join(argv)}"
 
 
 def _link_or_copy(src: Path, dst: Path) -> None:
@@ -110,7 +121,7 @@ class Cutter:
                     await proc.wait()
                 raise
             if proc.returncode != 0 or not part.exists():
-                raise RuntimeError(f"ffmpeg cut failed: {err.decode(errors='replace').strip()[-500:]}")
+                raise RuntimeError(ffmpeg_failure("cut", proc.returncode, err, argv))
             part.replace(out)
         finally:
             part.unlink(missing_ok=True)

@@ -20,4 +20,17 @@ def sample_segments(sample_video: Path, tmp_path_factory: pytest.TempPathFactory
         check=True)
     segs = sorted(d.glob("seg_*.ts"))
     assert len(segs) == 6, segs
+    for seg in segs:
+        strip_sdt(seg)
     return segs
+
+
+def strip_sdt(path: Path) -> None:
+    """Drop the SDT packets (PID 0x11) ffmpeg's mpegts muxer writes. Twitch segments
+    have none, and the static ffmpeg 7.0.2 build on this machine segfaults (SIGSEGV,
+    no stderr) in its mpegts demuxer while parsing an SDT, so this makes the test
+    segments look like Twitch's and keeps that crash out of the tests."""
+    data = path.read_bytes()
+    keep = [data[i:i + 188] for i in range(0, len(data) - 187, 188)
+            if ((data[i + 1] & 0x1F) << 8 | data[i + 2]) != 0x11]
+    path.write_bytes(b"".join(keep))

@@ -31,7 +31,8 @@ def ffmpeg_bin() -> str | None:
 def snapshot_cmd(ffmpeg: str, segment: Path, out: Path) -> list[str]:
     return [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
             "-skip_frame", "nokey", "-i", str(segment),
-            "-map", "0:v:0", "-frames:v", "1", "-q:v", "4", "-f", "image2", "-c:v", "mjpeg", str(out)]
+            "-map", "0:v:0", "-frames:v", "1", "-q:v", "4", "-f", "image2", "-update", "1",
+            "-c:v", "mjpeg", str(out)]
 
 
 async def grab_frame(segment: Path, dest: Path, *, ffmpeg: str | None = None) -> bool:
@@ -53,7 +54,8 @@ async def grab_frame(segment: Path, dest: Path, *, ffmpeg: str | None = None) ->
         tmp.unlink(missing_ok=True)
         raise
     if proc.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
-        log.debug("snapshot failed for %s: %s", segment.name, err.decode(errors="replace").strip())
+        log.debug("snapshot failed for %s (exit code %s): %s", segment.name, proc.returncode,
+                  err.decode(errors="replace").strip())
         tmp.unlink(missing_ok=True)
         return False
     tmp.replace(dest)

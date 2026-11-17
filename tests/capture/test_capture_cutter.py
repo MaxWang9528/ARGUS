@@ -203,3 +203,11 @@ async def test_grab_frame_writes_a_jpeg(sample_segments: list[Path], tmp_path: P
     assert not list(dest.parent.glob("*.tmp.jpg"))
     assert not await grab_frame(tmp_path / "missing.ts", dest)
     assert dest.read_bytes()[:2] == b"\xff\xd8"                 # old frame kept on failure
+
+
+def test_ffmpeg_failure_message_without_stderr() -> None:
+    from livewatcher.capture.cutter import ffmpeg_failure
+
+    msg = ffmpeg_failure("cut", -11, b"", ["ffmpeg", "-i", "concat:a.ts|b.ts", "out.mp4"])
+    assert "exit code -11" in msg and "signal 11" in msg and "'concat:a.ts|b.ts'" in msg
+    assert ffmpeg_failure("cut", 1, b"boom\n", ["ffmpeg"]) == "ffmpeg cut failed (exit code 1): boom"
