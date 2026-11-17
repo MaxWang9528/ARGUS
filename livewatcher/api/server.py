@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..app import ClipError
-from . import routes, ws
+from . import accounts, routes, ws
 
 if TYPE_CHECKING:
     from ..app import App
@@ -92,6 +92,7 @@ def create_app(app: App, *, web_dir: Path | None = None) -> FastAPI:
         return JSONResponse({"detail": str(exc)}, status_code=409)
 
     api.include_router(routes.router, prefix="/api")
+    api.include_router(accounts.router, prefix="/api")
     api.include_router(ws.router, prefix="/api")
     folder = web_dir or WEB_DIR
     if folder.is_dir():

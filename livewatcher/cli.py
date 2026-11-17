@@ -3,7 +3,7 @@
     ./lw run                 watch the streamers in config.toml
     ./lw demo                run everything on fake parts (no Twitch, no TikTok)
     ./lw replay <chat.jsonl> run a recorded chat log through the peak detector
-    ./lw login-tiktok        open a browser and log in to TikTok once
+    ./lw login-tiktok [--account NAME]  open a browser and log in to TikTok once
 """
 
 from __future__ import annotations
@@ -56,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("replay", help="run a chat log through the detector")
     p.add_argument("file")
     p.add_argument("--streamer", default=None, help="only this channel")
-    sub.add_parser("login-tiktok", help="log in to TikTok in the saved browser profile")
+    p = sub.add_parser("login-tiktok", help="log in to TikTok in an account's saved browser profile")
+    p.add_argument("--account", default=None, help="the [[tiktok.accounts]] name (default: the first)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,

@@ -56,8 +56,28 @@ dry_run = true                 # never click Post; what happens instead is set b
 dry_run_mode = "stop"          # "stop": stop on the filled-in form and save a screenshot
                                # "draft": click Save draft, so the clip lands in your TikTok drafts (not posted)
 caption_template = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
-max_uploads_per_day = 6
-min_minutes_between_uploads = 45
+max_uploads_per_day = 6          # these two limits (and browser_profile_dir, cookies_file)
+min_minutes_between_uploads = 45 # apply to the implicit "default" account, used when no
+                                 # [[tiktok.accounts]] are listed below
+cycle_accounts = false           # true: each upload goes to the next account with a free slot, in turn
+                                 # false: always the first account (in list order) with a free slot
+max_queue_age_h = 6              # a queued clip with no free slot for this many hours is dropped (0 = never)
+
+# More than one TikTok account: list them here (this replaces the "default" account).
+# Each has its own browser profile; log each one in with `./lw login-tiktok --account NAME`
+# or the Log in button on the dashboard. Dry runs still rotate through the accounts.
+# [[tiktok.accounts]]
+# name = "main"                      # letters, digits, . _ - (also the profile folder name)
+# enabled = true
+# browser_profile_dir = ""           # "" = <data_dir>/accounts/main/browser_profile
+# cookies_file = ""
+# max_uploads_per_day = 6
+# min_minutes_between_uploads = 45
+#
+# [[tiktok.accounts]]
+# name = "second"
+# max_uploads_per_day = 3
+# min_minutes_between_uploads = 90
 
 [[streamers]]
 name = "somestreamer"
