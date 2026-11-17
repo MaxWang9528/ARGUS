@@ -82,7 +82,8 @@ def test_sharp_spike_gives_one_peak():
 
 
 def test_two_spikes_inside_cooldown_give_one_peak():
-    _, peaks = run(chat(spike(4.0, 700, [(400, 10, 30.0), (460, 10, 30.0)])), 700)
+    # cooldown_s = 45: the first peak ends around +415, the second starts at +440
+    _, peaks = run(chat(spike(4.0, 700, [(400, 10, 30.0), (440, 10, 30.0)])), 700)
     assert len(peaks) == 1
     # ... but once the cooldown has passed the second one counts.
     _, peaks = run(chat(spike(4.0, 800, [(400, 10, 30.0), (600, 10, 30.0)])), 800)
@@ -116,7 +117,7 @@ def test_spike_from_a_single_user_gives_no_peaks():
 
 
 def test_too_few_unique_chatters_gives_no_peaks():
-    _, peaks = run(chat(spike(0.2, 600, [(400, 10, 8.0)]), users=4), 600)
+    _, peaks = run(chat(spike(0.2, 600, [(400, 10, 8.0)]), users=2), 600)  # min_unique_chatters = 3
     assert peaks == []
 
 
@@ -231,7 +232,9 @@ def test_bad_bin_s_does_not_crash():
 
 # ---- sustained chatter (min_sustain_s) ----------------------------------------------
 # Steady background chat, so the measured length is the burst's own, not stretched by
-# random noise just before it.
+# random noise just before it. These test the rule itself at min_sustain_s = 10 (the
+# default is 6, which lets a one-second burst of many people through).
+SUSTAIN10 = Detection(min_sustain_s=10)
 
 def chat_steady(rates):
     return chat(rates, noisy=False)
@@ -240,7 +243,7 @@ def chat_steady(rates):
 def test_one_second_burst_does_not_clip():
     # 80 messages from many people inside one second, then back to normal: smoothing
     # stretches it to a ~6 s bump, shorter than min_sustain_s (10 s).
-    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0)])), 600)
+    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0)])), 600, SUSTAIN10)
     assert peaks == []
 
 
@@ -250,7 +253,7 @@ def test_one_second_burst_clips_without_the_sustain_rule():
 
 
 def test_two_quick_bursts_are_not_sustained_chatter():
-    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0), (402, 1, 80.0)])), 600)
+    _, peaks = run(chat_steady(spike(4.0, 600, [(400, 1, 80.0), (402, 1, 80.0)])), 600, SUSTAIN10)
     assert peaks == []
 
 
@@ -263,9 +266,9 @@ def test_batched_delivery_still_counts_as_sustained():
 
 
 def test_a_spike_does_not_start_the_cooldown():
-    # a lone spike, then a real peak 20 s later (inside cooldown_s = 90): still clipped
+    # a lone spike, then a real peak 20 s later (inside cooldown_s): still clipped
     rates = spike(4.0, 600, [(400, 1, 80.0), (420, 12, 30.0)])
-    _, peaks = run(chat_steady(rates), 600)
+    _, peaks = run(chat_steady(rates), 600, SUSTAIN10)
     assert len(peaks) == 1 and peaks[0].ts_start >= T0 + 410
 
 
@@ -331,3 +334,25 @@ def test_text_classifiers():
         assert ANSWER.match(t), t
     for t in ["no shot", "gg that was insane", "123"]:
         assert not ANSWER.match(t), t
+
+
+def test_slow_climb_past_the_threshold_then_back_gives_no_peak():
+    # Slow chat (1 msg/s) creeps up to 5 msg/s over 90 s, holds, then drops back. Over
+    # the slow 5-minute baseline that clears every threshold, but there was never a jump.
+    rates = [1.0] * 400 + [1.0 + 4.0 * s / 90 for s in range(90)] + [5.0] * 20 + [1.0] * 290
+    _, peaks = run(chat(rates, noisy=False), 800)
+    assert peaks == []
+    # The same height reached in one jump is a peak.
+    _, peaks = run(chat([1.0] * 400 + [5.0] * 15 + [1.0] * 385, noisy=False), 800)
+    assert len(peaks) == 1
+
+
+def test_chat_still_climbing_long_after_the_jump_is_not_a_peak():
+    # A jump, but chat keeps building for another 40 s: a climb to a new level.
+    rates = [1.0] * 400 + [4.0] * 5 + [4.0 + 0.2 * s for s in range(40)] + [1.0] * 355
+    _, peaks = run(chat(rates, noisy=False), 800)
+    assert peaks == []
+    # A reaction peaks within seconds of the jump, then fades.
+    rates = [1.0] * 400 + [8.0] * 8 + [4.0] * 10 + [1.0] * 382
+    _, peaks = run(chat(rates, noisy=False), 800)
+    assert len(peaks) == 1

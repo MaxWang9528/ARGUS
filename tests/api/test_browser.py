@@ -727,3 +727,37 @@ def test_clip_scores_and_queue_order(server: DemoServer, browser) -> None:
     if shots:
         _shoot(page, shots, "clips-uploaded")
     assert errors == []
+
+
+def test_discovered_channels_and_discovery_settings(server: DemoServer, browser, monkeypatch) -> None:
+    """A channel stream discovery added gets a badge; Settings has the Discovery block,
+    which says how to set up the Twitch keys when there are none."""
+    monkeypatch.delenv("TWITCH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("TWITCH_CLIENT_SECRET", raising=False)
+    shots = os.environ.get("LW_SCREENSHOTS")
+    page = browser.new_page(viewport={"width": 1366, "height": 900})
+    errors = _watch_errors(page)
+    AccountsApi(server).install(page)
+    page.goto(server.url + "/#streams")
+    page.locator("[data-testid=stream-card]").first.wait_for()
+    assert page.locator("[data-testid=discovered-badge]:visible").count() == 0
+    # From the app's loop, as StreamDiscovery does: the page hears streamers_changed.
+    assert server._loop is not None
+    server._loop.call_soon_threadsafe(server.app.store.set_discovered, ["demo_found"])
+    card = page.locator("[data-testid=stream-card][data-name=demo_found]")
+    card.wait_for(timeout=15_000)
+    assert card.locator("[data-testid=discovered-badge]").is_visible()
+    assert page.locator("[data-testid=stream-card][data-name=demo_alpha] [data-testid=discovered-badge]").is_hidden()
+
+    page.goto(server.url + "/#settings")
+    panel = page.locator("[data-testid=discovery-panel]")
+    panel.wait_for()
+    assert "dev.twitch.tv/console" in panel.locator("[data-testid=discovery-status]").inner_text()
+    panel.locator("[data-testid=discovery-top-n]").fill("5")
+    panel.locator("[data-testid=discovery-top-n]").dispatch_event("input")
+    panel.locator("button[type=submit]").click()
+    _wait_for(lambda: server.app.store.get().discovery.top_n == 5)
+    assert server.app.store.get().discovery.enabled is False
+    if shots:
+        _shoot(page, shots, "settings-discovery", full_page=True)
+    assert errors == []

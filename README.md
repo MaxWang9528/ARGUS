@@ -1,5 +1,6 @@
 # ARGUS
 
+
 ARGUS watches Twitch streams live and works out when chat reacts to something. It then clips that moment from a rolling video buffer, renders a 9:16 vertical version and uploads it to TikTok. A local web dashboard shows the streams, the chat-rate graphs and a review queue for the clips.
 
 Peaks in any game are clipped; the stream's game (its Twitch category) decides which streams are recorded first and which caption a clip gets.
@@ -16,6 +17,13 @@ Twitch video (streamlink) ──> rolling 3-min buffer of 2 s segments │
                                    auto-upload on ──> upload queue ──> TikTok (Playwright browser)
                                    auto-upload off ─> review queue in the dashboard
 ```
+
+
+
+![Project architecture diagram](./1.png)
+![Project architecture diagram](./2.png)
+
+
 
 ---
 
@@ -37,6 +45,7 @@ Other commands:
 | `./lw demo` | Starts the dashboard with fake streams, chat and uploads. Nothing touches Twitch or TikTok. |
 | `./lw replay <chatlog.jsonl> [--streamer name]` | Runs the peak detector over a recorded chat log and prints the peaks it finds. Use it to tune the thresholds. |
 | `./lw login-tiktok [--account NAME]` | Opens a browser window so you can log in to a TikTok account once. The login is saved in that account's browser profile. The Accounts page has a Log in button that does the same. |
+| `./lw discover [--category NAME] [--top N]` | Prints the top live Twitch streams once, with your `[discovery]` settings (see [Stream discovery](#10-stream-discovery-argusdiscover)). Use it to test the Twitch keys. |
 | `./lw --config other.toml run` | Uses a different config file. |
 
 ### One-time setup
@@ -47,6 +56,8 @@ Other commands:
 | ffmpeg | `sudo apt install ffmpeg`. Use the apt build: static builds without `drawtext` can't burn in titles. |
 | Browser libraries | `sudo ~/.venvs/livewatcher/bin/playwright install-deps chromium`, then `playwright install chromium`. |
 | TikTok login | `./lw login-tiktok` |
+| Speech check (optional) | `~/.local/bin/uv pip install --python ~/.venvs/livewatcher/bin/python faster-whisper` (the `speech` extra in `pyproject.toml`). The model (`small.en`, ~500 MB) downloads to the Hugging Face cache (`~/.cache/huggingface/hub`) the first time a clip is checked. Without the package the check is skipped with a warning. |
+| Moment judge (optional) | `~/.local/bin/uv pip install --python ~/.venvs/livewatcher/bin/python anthropic` (the `judge` extra), then put `ANTHROPIC_API_KEY` in `.env` (copy `.env.example`; `export` or `ant auth login` also work), and set `judge.enabled = true`. Off by default. About 1-2 cents per auto clip on `claude-opus-5-5` at effort `low`. |
 
 `sudo` has to run in a real terminal. It can't ask for your password through Claude Code's `!` prefix.
 
@@ -128,6 +139,8 @@ plus: rejected (by you), dropped (window not recordable: ad gap, too old, stream
 1. **waiting:** the post-roll hasn't been recorded yet. The clip waits, up to 120 s past the window end, until the whole window is in closed segments.
 2. **cutting:** the segments covering the window are hard-linked into `clips/tmp/`, so buffer trimming can't delete them mid-cut. They are then joined, trimmed exactly and re-encoded to H.264/AAC in `clips/raw/<id>.mp4`. Twitch has a keyframe only every 2 s, so a stream copy would start up to 2 s off.
 3. **rendering:** produces a 1080×1920 render in the streamer's layout, `clips/out/<id>_<layout>.mp4` (libx264 veryfast, CRF 20, AAC 128k). The streamer's name is burned in as a title.
+   - **Speech check** (auto clips only, while the render runs): the raw cut is transcribed on the CPU with faster-whisper (`speech.model`, default `small.en`, int8; about 6.5 CPU-s per 30 s clip, `base.en` about 2). The clip gets `transcript` and `speech_score`: the busiest 5 s of exclamation phrases ("no way", "oh my god", "what the ...", "let's go"), swearing, laughter and doubled words or "!" (about 1-1.5 per exclamation or swear, 0 for calm talk). Words per second and loudness are not used. The score multiplies the clip's rank by `1 + speech.rank_weight × (min(score, 3) − 0.5)`, kept within 0.5-2. With `speech.gate_threshold` > 0, a clip scoring below it is **dropped** ("speech check: ..."); it keeps its render, so you can still approve it. If transcription fails or faster-whisper is missing, the clip goes on unchanged and the log says why. At most `speech.max_concurrent` (1) transcriptions run at a time. The transcript shows in the clip's details.
+   - **Moment judge** (auto clips only, off by default, after the speech check): the transcript and the clip's chat (bot commands removed, at most 200 lines) go to Claude (`judge.model`, effort `judge.effort`), which returns whether it is a moment, a 0-10 score, a reason and a caption draft. The rank is multiplied by `1 + judge.rank_weight × (score / 10 − 0.5)`, kept within 0.25-2. With `judge.use_caption` the caption becomes the judge's caption plus the #tags of the usual caption. With `judge.gate_score` > 0, a lower score **drops** the clip (it keeps its render). Without credentials, or on any API error or refusal, the clip goes on unchanged and the log says why. The verdict shows in the clip's details.
 4. The clip's chat-rate samples are saved to `clips/rates/<id>.json`, so the dashboard can replay the graph with the video.
 5. **pending_review** if auto-upload is off, otherwise **queued**.
 
@@ -147,7 +160,7 @@ You can re-render any clip in another layout from the Clips tab; each layout's f
 
 - **Accounts:** `[[tiktok.accounts]]`, or the Accounts page, lists the TikTok accounts to post to. Each one has its own browser profile (login), `max_uploads_per_day` and `min_minutes_between_uploads`. With no accounts listed there is one built-in account, `default`, that uses the `[tiktok]` profile and limits.
 - The **upload queue** uploads one clip at a time.
-  - **Which clip:** clips you made with Clip now go first, then the highest **chat-to-baseline ratio** (`clip.score`, the peak's rate ÷ normal chat), then the oldest. So when there are more clips than upload slots, the biggest chat reactions get posted. A clip that finds no slot within `tiktok.max_queue_age_h` (6) hours is dropped as expired; you can queue it again from the Failed tab.
+  - **Which clip:** clips you made with Clip now go first, then the highest **rank**, then the oldest. The rank is the peak's chat-to-baseline ratio × √(unique chatters) × a chat-text factor × the speech-check factor, halved every `tiktok.rank_half_life_h` hours of age. So when there are more clips than upload slots, the biggest reactions get posted. A clip that finds no slot within `tiktok.max_queue_age_h` (6) hours is dropped as expired; you can queue it again from the Failed tab.
   - **Which account:** only enabled accounts with a free slot count: fewer than their daily maximum in the last 24 h, and at least their minimum gap since that account's last upload. With **Cycle** (`tiktok.cycle_accounts`) on, uploads go to each account in turn; with it off, to the first account in the list with a free slot. With no free account the clip waits, and the queue shows why.
   - Dry runs don't count toward the limits, but they still rotate accounts, so a dry run with Cycle on tests each account's login in turn.
   - A logged-out account or a CAPTCHA pauses only that account; a page change pauses the whole queue.
@@ -187,11 +200,22 @@ FastAPI serves a static page (Alpine.js, uPlot, hls.js, no build step) on `127.0
   - Detection sliders, global or per streamer.
   - Sync-offset slider, layout tool, dry-run switch.
   - Health table, which also shows which components are real or fake.
-- **Settings:** the auto-upload switch (also in the header), the streamer list, upload limits, the caption template and the theme.
+- **Settings:** the auto-upload switch (also in the header), the streamer list, stream discovery, upload limits, the caption template and the theme.
 
 Saving from the dashboard writes `config.toml` with `tomlkit`, so your comments and formatting are kept.
 
-### 10. Retention
+### 10. Stream discovery (`argus/discover/`)
+
+Instead of (or as well as) listing streamers, ARGUS can watch the top live Twitch streams by concurrent viewers, in chosen categories or all of them.
+
+- Every `discovery.poll_s` (90 s) it calls the official Helix API: `GET /helix/streams?type=live&first=100` with your `language`s and the `game_id`s of `discovery.categories` (looked up once with `GET /helix/games?name=`). Twitch returns streams by viewer count, so a poll is usually 1-3 requests. It authenticates with an app access token (client-credentials flow), cached until it expires and renewed on a 401; a 429 waits until `Ratelimit-Reset`.
+- The top `top_n` channels with at least `min_viewers`, minus `exclude` (and any `[[streamers]]` entry turned off), are watched. A channel that leaves the top or goes offline stays for `keep_minutes` (10), so a clip being made isn't cut off and chat doesn't join and part constantly.
+- Discovered channels are watched exactly like listed ones: live check (discovery's own viewer counts and categories are reused, so they aren't checked twice), recording within `general.max_streamers`, chat, peak detection and clipping. A discovered channel that is also in `[[streamers]]` keeps its overrides; others use the `[detection]` defaults and the default layout. They are never written to `config.toml`.
+- `mode = "merge"` watches `[[streamers]]` plus the discovered channels; `"only"` watches just the discovered ones (while discovery isn't running, for example without keys, the list is used).
+- The dashboard marks them with a **discovered** badge and shows their viewers and category. Settings has a Discovery block.
+- **Setup:** create an application at <https://dev.twitch.tv/console> (any name; OAuth redirect `http://localhost`), then put `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in `.env` (copy `.env.example`) or the environment (or `twitch.client_id` / `twitch.client_secret` in `config.toml`), and set `discovery.enabled = true`. `./lw discover [--category NAME] [--top N]` prints the current top streams once, to test the keys. The secret is never logged or sent to the dashboard.
+
+### 11. Retention
 
 Every hour, the raw, rendered and screenshot files and the saved chat rates of clips older than `general.retention_days` (7) are deleted. Clips still in progress are skipped. The clip rows stay in the database, so the history is kept. Leftover `clips/tmp/` folders older than a day are removed. Chat logs are kept. Set `retention_days = 0` to keep everything.
 
@@ -208,7 +232,11 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | `general.priority_categories` | `[]` | Record these categories first when `max_streamers` applies |
 | `tiktok.category_captions` | none | Caption per Twitch category; others use `caption_template` (`{streamer}`, `{category}`) |
 | `general.retention_days` | `7` | Delete clip files after this many days |
-| `twitch.client_id` / `client_secret` | empty | Optional Helix keys: faster batched live checks |
+| `twitch.client_id` / `client_secret` | empty | Helix keys: faster batched live checks; needed for discovery. The env vars `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` win |
+| `discovery.enabled` / `mode` | `false` / `"merge"` | Also watch the top live streams (`"only"`: just those) |
+| `discovery.categories` / `languages` | `[]` (all) / `["en"]` | Exact Twitch category names; stream languages |
+| `discovery.top_n` / `min_viewers` / `exclude` | `12` / `0` / `[]` | How many, the viewer floor, channels never to add |
+| `discovery.poll_s` / `keep_minutes` | `90` / `10` | Seconds between checks; how long a channel stays after leaving the top |
 | `detection.*` | see [Peak detection](#2-peak-detection-argusdetectpeakpy) | Thresholds; also adjustable live in the Debug tab |
 | `capture.buffer_minutes` | `3` | How far back a clip can reach |
 | `capture.sync_offset_s` | `-2.0` | Chat-to-video offset (tune it live) |
@@ -222,6 +250,13 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | `tiktok.cycle_accounts` | `false` | Post to each account in turn |
 | `tiktok.max_queue_age_h` | `6` | Drop queued clips that find no slot within this many hours (0 = never) |
 | `tiktok.max_uploads_per_day` / `min_minutes_between_uploads` | `6` / `45` | Limits of the built-in `default` account |
+| `speech.enabled` | `true` | Speech check on auto clips (skipped with a warning if faster-whisper isn't installed) |
+| `speech.model` / `threads` / `max_concurrent` | `small.en` / `2` / `1` | faster-whisper model (int8, CPU), threads per transcription, transcriptions at a time (1-2) |
+| `speech.download_root` | `""` | Where models go (`""` = the Hugging Face cache) |
+| `speech.rank_weight` | `0.25` | How much the speech score moves the rank (0 = not at all) |
+| `speech.gate_threshold` | `0` | Drop auto clips scoring below this (0 = off; fitted on one small dataset, so try ~0.5 with care) |
+| `judge.enabled` / `model` / `effort` | `false` / `claude-opus-5-5` / `low` | Moment judge on auto clips (needs `anthropic` and a credential) |
+| `judge.rank_weight` / `gate_score` / `use_caption` / `max_concurrent` | `1.0` / `0` / `true` / `2` | Rank effect (0 = none), drop below this score (0 = off), use its caption, requests at a time |
 
 Each `[[streamers]]` entry has `name` and `enabled`, plus optional `layout`, `fit_zoom`, `crop_x`, `stack_top`, `stack_bottom` and `stack_split`. It can also override any `[detection]` key (for example `multiplier = 2.5` for a slower chat).
 
@@ -270,7 +305,7 @@ Each recorded stream costs about 80 MB of RAM and 0.4 MB/s of download, so keep 
 |---|---|
 | `argus/core/` | Config, models, SQLite, event bus, interfaces, fakes for the demo |
 | `argus/app.py` | Wires the components together; `ClipService`, retention |
-| `argus/chat/`, `detect/` | IRC reader, chat logs, peak detector, replay |
+| `argus/chat/`, `detect/` | IRC reader, chat logs, peak detector, replay, speech check |
 | `argus/capture/` | Live check, recorder, buffer index, snapshots, cutter |
 | `argus/render/` | Filtergraphs, renderer, layout previews |
 | `argus/upload/` | TikTok uploader, upload queue (ranking, accounts), login |

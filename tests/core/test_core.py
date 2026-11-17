@@ -25,14 +25,14 @@ def test_example_config_is_valid(tmp_path):
     # per-streamer detection overrides
     path.write_text(_one_streamer(text), encoding="utf-8")
     store = ConfigStore(path)
-    assert store.get().detection_for("somestreamer").multiplier == 2.5
-    assert store.get().detection_for("other").multiplier == 3.0
+    assert store.get().detection_for("somestreamer").multiplier == 4.5
+    assert store.get().detection_for("other").multiplier == 2.5
 
 
 def _one_streamer(example: str) -> str:
     """The example config with its streamer list cut down to one entry with an override."""
     head = example[:example.index("\n[[streamers]]") + 1]
-    return head + '[[streamers]]\nname = "somestreamer"\nmultiplier = 2.5\n'
+    return head + '[[streamers]]\nname = "somestreamer"\nmultiplier = 4.5\n'
 
 
 def test_update_keeps_comments_and_validates(tmp_path, bus):

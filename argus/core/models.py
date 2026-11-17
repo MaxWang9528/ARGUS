@@ -99,10 +99,38 @@ class Clip(BaseModel):
     score: float = 0.0  # the peak's rate / baseline (shown on the dashboard)
     rank: float = 0.0   # the peak's rank; orders the upload queue (0: older clip, use score)
     account: str = ""   # TikTok account it was (or is being) uploaded to
+    # Speech check (auto clips, [speech] on): what the streamer said in the raw cut, and its
+    # excitement score (exclamations, swearing; argus.detect.speech). None = not checked.
+    transcript: str = ""
+    speech_score: float | None = None
+    speech_hits: list[str] = Field(default_factory=list)  # the phrases that scored
+    # Moment judge (auto clips, [judge] on; argus.detect.judge): Claude's verdict on the
+    # transcript and chat. None = not judged.
+    judge_score: float | None = None   # 0-10, how TikTok-worthy
+    judge_moment: bool | None = None
+    judge_reason: str = ""
+    judge_caption: str = ""            # the caption it drafted (no tags)
 
     @property
     def out_path(self) -> str | None:
         return self.renders.get(self.active_layout)
+
+
+class Word(BaseModel):
+    """One transcribed word; times in seconds from the start of the transcribed audio."""
+
+    w: str
+    t: float         # start
+    e: float         # end
+    p: float = 1.0   # the model's confidence
+
+
+class Transcript(BaseModel):
+    text: str = ""
+    words: list[Word] = Field(default_factory=list)
+    duration: float = 0.0  # seconds of audio transcribed
+    model: str = ""
+    wall_s: float = 0.0    # time it took
 
 
 class UploadResult(BaseModel):

@@ -111,21 +111,30 @@ async def get_state(request: Request) -> dict[str, Any]:
     lw = _lw(request)
     cfg = lw.store.get()
     streamers = []
-    for s in cfg.streamers:
-        name = s.name.lower()
+    watching = {s.name.lower() for s in cfg.enabled_streamers()}
+    # [[streamers]] first, then channels only stream discovery added.
+    rows = [(s.name.lower(), s.enabled) for s in cfg.streamers]
+    known = {n for n, _ in rows}
+    rows += [(n, True) for n in cfg.discovered_names() if n not in known]
+    for name, enabled in rows:
         streamers.append({
             "name": name,
-            "enabled": s.enabled,
+            # discovery.mode = "only": a configured channel discovery didn't pick isn't watched
+            "enabled": enabled and name in watching,
             "status": _dump(lw.recorder.status(name)),
             "has_playlist": lw.recorder.playlist_path(name) is not None,
             # Not in the contract table: lets the page skip a snapshot request that would 404.
             "has_snapshot": lw.recorder.snapshot_path(name) is not None,
+            "discovered": cfg.is_discovered(name),
+            "configured": name in known,
         })
+    discovery = getattr(lw, "discovery", None)
     return {
         "auto_upload": cfg.general.auto_upload,
         "dry_run": cfg.tiktok.dry_run,
         "components": dict(lw.components),
         "streamers": streamers,
+        "discovery": discovery.public_state() if discovery is not None else None,
     }
 
 

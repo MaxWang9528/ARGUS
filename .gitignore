@@ -11,3 +11,6 @@ data/
 # app data: buffers, clips, database, browser logins
 clips/
 .idea/
+
+# API keys
+.env

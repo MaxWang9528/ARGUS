@@ -27,6 +27,9 @@ from .core.db import Database
 from .core.events import EventBus, Topic
 from .core.interfaces import WindowUnavailable
 from .core.models import Clip, ClipStatus, LogLine, PeakEvent, RateSample
+from .detect.judge import MomentJudge
+from .detect.speech import SpeechCheck
+from .discover.service import StreamDiscovery
 
 log = logging.getLogger("argus.app")
 
@@ -171,10 +174,13 @@ class ClipService:
             caption=cfg.caption_for(peak.streamer, status.category), score=peak.score,
             rank=peak.rank)
         self._save(clip)
-        self._spawn(self._process(clip))
+        self._spawn(self._process(clip, speech=peak.source == "auto"))
         return clip
 
-    async def _process(self, clip: Clip) -> None:
+    async def _process(self, clip: Clip, speech: bool = False) -> None:
+        """Wait for the window, cut it, then render it while the speech check (auto clips
+        only) transcribes the raw cut and the moment judge reads it. A failed speech check or
+        judge never fails the clip."""
         app = self.app
         try:
             deadline = clip.window_end + self.WAIT_GRACE_S
@@ -186,7 +192,21 @@ class ClipService:
             self._save(clip)
             clip.raw_path = str(await app.cutter.cut(
                 clip.streamer, clip.window_start, clip.window_end, clip.id))
-            await self._render(clip, clip.active_layout)
+            check = asyncio.create_task(self._checks(clip)) if speech else None
+            try:
+                await self._render(clip, clip.active_layout)
+            except BaseException:
+                if check is not None:
+                    check.cancel()
+                raise
+            drop = await check if check is not None else None
+            if drop:
+                # Kept with its render: approving it still sends it to the upload queue.
+                clip.status, clip.error = ClipStatus.DROPPED, drop
+                self._save(clip)
+                log.info("clip %s dropped: %s", clip.id, drop, extra={"streamer": clip.streamer})
+                app.save_clip_rates(clip)
+                return
             auto = app.store.get().general.auto_upload
             clip.status = ClipStatus.QUEUED if auto else ClipStatus.PENDING_REVIEW
             self._save(clip)
@@ -202,6 +222,18 @@ class ClipService:
             clip.status, clip.error = ClipStatus.FAILED, f"{type(exc).__name__}: {exc}"
             self._save(clip)
             log.exception("clip %s failed", clip.id, extra={"streamer": clip.streamer})
+
+    async def _checks(self, clip: Clip) -> str | None:
+        """Auto clips: the speech check, then the moment judge (it reads the transcript).
+        Returns a drop reason or None. Neither ever raises except on cancel."""
+        drop = await self.app.speech.check(clip)
+        if drop:
+            return drop
+        try:
+            category = self.app.recorder.status(clip.streamer).category
+        except Exception:  # noqa: BLE001 - only context for the judge
+            category = ""
+        return await self.app.judge.judge(clip, category)
 
     async def _render(self, clip: Clip, layout: str) -> None:
         clip.status = ClipStatus.RENDERING
@@ -288,6 +320,15 @@ class App:
         self.renderer = self._make("renderer", **common)
         self.uploader = self._make("uploader", **common)
         self.upload_queue = self._make("upload_queue", db=self.db, uploader=self.uploader, **common)
+        # The speech check uses faster-whisper when it is installed; the demo uses a fake.
+        self.speech = SpeechCheck(store, transcriber=fakes.FakeTranscriber() if demo else None)
+        # Off by default; needs the anthropic package and a credential.
+        self.judge = MomentJudge(store)
+        # Stream discovery (off by default): adds the top live channels to the watch list.
+        self.discovery = StreamDiscovery(store=store, bus=self.bus)
+        checker = getattr(self.recorder, "live_checker", None)
+        if checker is not None and hasattr(checker, "hints"):
+            checker.hints = self.discovery.live_hint  # discovered channels aren't checked twice
         self.clips = ClipService(self)
         self._rates: dict[str, deque[RateSample]] = {}
         self._logs: deque[LogLine] = deque(maxlen=500)
@@ -487,7 +528,7 @@ class App:
         root.addHandler(handler)
         root.setLevel(logging.INFO)
         jobs = [self._collect(), self.clips.run(), self.chat.run(), self.detector.run(),
-                self.recorder.run(), self.upload_queue.run(), self._retention()]
+                self.recorder.run(), self.upload_queue.run(), self._retention(), self.discovery.run()]
         if self.serve:
             jobs.append(self._serve())
         try:

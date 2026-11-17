@@ -20,7 +20,17 @@ from .config import ConfigStore, LayoutConfig
 from .db import Database
 from .events import EventBus, Topic
 from .interfaces import WindowUnavailable
-from .models import ChatMessage, Clip, ClipStatus, PeakEvent, RateSample, StreamStatus, UploadResult
+from .models import (
+    ChatMessage,
+    Clip,
+    ClipStatus,
+    PeakEvent,
+    RateSample,
+    StreamStatus,
+    Transcript,
+    UploadResult,
+    Word,
+)
 
 
 class FakeChatSource:
@@ -196,6 +206,19 @@ class FakeCutter:
         if not ok:
             out.write_bytes(b"fake clip (ffmpeg not installed)")
         return out
+
+
+class FakeTranscriber:
+    """Returns the same short, excited transcript for any file (or ``text`` if given)."""
+
+    def __init__(self, text: str = "wait what no way oh my god let's go") -> None:
+        self.text = text
+        self.calls: list[Path] = []
+
+    async def transcribe(self, path: Path, start: float = 0.0, duration: float | None = None) -> Transcript:
+        self.calls.append(Path(path))
+        words = [Word(w=w, t=1.0 + 0.4 * i, e=1.3 + 0.4 * i) for i, w in enumerate(self.text.split())]
+        return Transcript(text=self.text, words=words, duration=duration or 10.0, model="fake")
 
 
 class FakeRenderer:
