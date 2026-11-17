@@ -264,6 +264,8 @@ def file_lw(tmp_path, bus):
     """An App whose config is a copy of config.example.toml on disk."""
     text = Path("config.example.toml").read_text(encoding="utf-8")
     text = text.replace('data_dir = "~/.local/share/livewatcher"', f'data_dir = "{tmp_path / "data"}"')
+    # one streamer with an override, instead of the example's long list
+    text = text[:text.index("\n[[streamers]]") + 1] + '[[streamers]]\nname = "somestreamer"\nmultiplier = 2.5\n'
     path = tmp_path / "config.toml"
     path.write_text(text, encoding="utf-8")
     app = App(ConfigStore(path, bus=bus), demo=True, serve=False)

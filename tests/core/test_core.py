@@ -15,9 +15,22 @@ def test_example_config_is_valid(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text(text, encoding="utf-8")
     store = ConfigStore(path)
-    assert store.get().streamers[0].name == "somestreamer"
+    cfg = store.get()
+    names = [s.name for s in cfg.streamers]
+    assert len(names) >= 50 and len(set(names)) == len(names)
+    assert cfg.general.max_streamers == 12
+    assert cfg.general.clip_categories == ["Grand Theft Auto VI"]
+    # per-streamer detection overrides
+    path.write_text(_one_streamer(text), encoding="utf-8")
+    store = ConfigStore(path)
     assert store.get().detection_for("somestreamer").multiplier == 2.5
     assert store.get().detection_for("other").multiplier == 3.0
+
+
+def _one_streamer(example: str) -> str:
+    """The example config with its streamer list cut down to one entry with an override."""
+    head = example[:example.index("\n[[streamers]]") + 1]
+    return head + '[[streamers]]\nname = "somestreamer"\nmultiplier = 2.5\n'
 
 
 def test_update_keeps_comments_and_validates(tmp_path, bus):
