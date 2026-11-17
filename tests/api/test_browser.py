@@ -104,6 +104,11 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     page.on("console", lambda m: errors.append(f"console: {m.text}")
             if m.type == "error" or (m.type == "warning" and "Alpine" in m.text) else None)
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    # The console line doesn't name the resource; these do.
+    # ERR_ABORTED is the page itself dropping a request (a <video> whose src changed).
+    page.on("requestfailed", lambda r: errors.append(f"requestfailed: {r.url} {r.failure}")
+            if "ERR_ABORTED" not in (r.failure or "") else None)
+    page.on("response", lambda r: errors.append(f"http {r.status}: {r.url}") if r.status >= 500 else None)
 
     page.goto(server.url + "/#streams")
     cards = page.locator("[data-testid=stream-card]")
@@ -176,9 +181,10 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
         page.screenshot(path=f"{shots}/streams-narrow.png")
 
     # Losing the server shows the banner (the page keeps retrying by itself).
+    # Everything up to here must be clean. After the stop, responses cut off mid-send
+    # (length mismatches, 500s from the cancelled app) and failed reconnects are expected.
+    assert errors == []
     page.set_viewport_size({"width": 1366, "height": 860})
     server.stop()
     page.locator(".banner", has_text="Lost the connection").wait_for(timeout=10_000)
-    # Failed reconnects log "can't connect" errors in the console; those are expected now.
-    errors[:] = [e for e in errors if "ERR_CONNECTION_REFUSED" not in e and "WebSocket" not in e]
-    assert errors == []
+    assert [e for e in errors if "pageerror" in e or "Alpine" in e] == []

@@ -15,6 +15,7 @@ import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
+import anyio
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, ValidationError
@@ -135,15 +136,26 @@ async def get_rates(request: Request, name: str) -> list[dict[str, Any]]:
 
 
 @router.get("/streamers/{name}/snapshot.jpg")
-async def get_snapshot(request: Request, name: str) -> FileResponse:
+async def get_snapshot(request: Request, name: str) -> Response:
     lw = _lw(request)
     low = _streamer_name(lw, name)
     path = _inside(lw.recorder.snapshot_path(low), lw.store.get().data_dir / "snapshots")
-    return FileResponse(path, media_type="image/jpeg", headers=_NO_STORE)
+    return Response(await _read_whole(path), media_type="image/jpeg", headers=_NO_STORE)
+
+
+async def _read_whole(path: Path) -> bytes:
+    """Read a small file that is replaced by rename (snapshots, the live playlist) in one go.
+
+    FileResponse sizes the file before sending it, so a rename in between gives the
+    browser a Content-Length that doesn't match the body."""
+    try:
+        return await anyio.Path(path).read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(404, "no such file") from None
 
 
 @router.get("/streamers/{name}/live/{file}")
-async def get_live(request: Request, name: str, file: str) -> FileResponse:
+async def get_live(request: Request, name: str, file: str) -> Response:
     lw = _lw(request)
     low = _streamer_name(lw, name)
     playlist = lw.recorder.playlist_path(low)
@@ -157,8 +169,9 @@ async def get_live(request: Request, name: str, file: str) -> FileResponse:
     target = playlist if file == "live.m3u8" else folder / file
     path = _inside(target, folder)
     media_type = _HLS_TYPES.get(path.suffix.lower(), "application/octet-stream")
-    headers = _NO_STORE if path.suffix.lower() == ".m3u8" else None
-    return FileResponse(path, media_type=media_type, headers=headers)
+    if path.suffix.lower() == ".m3u8":
+        return Response(await _read_whole(path), media_type=media_type, headers=_NO_STORE)
+    return FileResponse(path, media_type=media_type)
 
 
 def _region(text: str | None, field: str) -> Region | None:
