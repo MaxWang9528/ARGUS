@@ -73,7 +73,8 @@ class Twitch(_Model):
 class Detection(_Model):
     bin_s: float = Field(1, gt=0)
     smooth_s: float = Field(5, gt=0)
-    baseline_window_s: float = 600
+    baseline_window_s: float = Field(300, gt=0)  # "normal chat" = median rate over this long
+    recent_baseline_s: float = Field(90, ge=0)   # a higher median over this long lifts it (0 = off)
     multiplier: float = 3.0
     z_threshold: float = 4.0
     min_msgs_per_sec: float = 2.0

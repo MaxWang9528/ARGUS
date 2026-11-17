@@ -396,19 +396,42 @@ document.addEventListener('alpine:init', () => {
       { id: 'uploaded', label: 'Uploaded' }, { id: 'failed', label: 'Failed and dropped' },
     ],
     layouts: [{ id: 'blur_fit', label: 'Blur fit' }, { id: 'crop', label: 'Crop' }, { id: 'stacked', label: 'Stacked' }],
+    // Detection sliders. Common ones show in the Detection card; `adv` ones in the
+    // folded "Advanced detection" card. All of them work globally or per streamer.
     detFields: [
       { key: 'multiplier', label: 'Times normal', min: 1, max: 10, step: 0.1, unit: '×', help: 'A peak needs chat at this many times its normal rate.' },
       { key: 'z_threshold', label: 'Unusualness (z)', min: 0, max: 12, step: 0.1, unit: '', help: 'How far above normal, in standard deviations.' },
       { key: 'min_msgs_per_sec', label: 'Busiest second, at least', min: 0, max: 30, step: 0.5, unit: 'msg/s', help: 'Ignores spikes in very quiet chats.' },
       { key: 'min_unique_chatters', label: 'Different chatters, at least', min: 0, max: 60, step: 1, unit: '', help: 'Stops one person spamming from counting.' },
-      { key: 'end_ratio', label: 'Peak ends below', min: 1, max: 5, step: 0.1, unit: '× normal', help: 'When chat falls under this, the peak is over.' },
-      { key: 'cooldown_s', label: 'Wait between peaks', min: 0, max: 600, step: 5, unit: 's', help: 'No new peak this soon after the last one.' },
       { key: 'min_sustain_s', label: 'Chat must stay up for', min: 0, max: 60, step: 1, unit: 's', help: 'Shorter bursts are one-off spikes and are not clipped.' },
-      { key: 'smooth_s', label: 'Smoothing', min: 1, max: 30, step: 1, unit: 's', help: 'Averages the rate over this many seconds.' },
-      { key: 'baseline_window_s', label: 'Normal is measured over', min: 60, max: 1800, step: 30, unit: 's', help: 'How far back "normal chat" looks.' },
-      { key: 'preroll_s', label: 'Keep before the peak', min: 0, max: 60, step: 1, unit: 's', help: 'Seconds of video kept before chat rose.' },
-      { key: 'postroll_s', label: 'Keep after the peak', min: 0, max: 30, step: 1, unit: 's', help: 'Seconds kept after chat fell back.' },
+      { key: 'cooldown_s', label: 'Wait between peaks', min: 0, max: 600, step: 5, unit: 's', help: 'No new peak this soon after the last one.' },
+      { key: 'preroll_s', label: 'Keep before chat rose', min: 0, max: 60, step: 1, unit: 's', help: 'Seconds of video kept before chat started rising.' },
+      { key: 'max_after_peak_s', label: 'Keep after the busiest second', min: 2, max: 60, step: 1, unit: 's', help: 'The clip ends at most this long after the peak.' },
       { key: 'max_clip_s', label: 'Longest clip', min: 10, max: 180, step: 5, unit: 's', help: 'A clip never runs longer than this.' },
+      { key: 'manual_preroll_s', label: 'Clip now: before the press', min: 0, max: 60, step: 1, unit: 's', help: 'Seconds kept before you pressed Clip now.' },
+      { key: 'end_ratio', adv: true, label: 'Peak ends below', min: 1, max: 5, step: 0.1, unit: '× normal', help: 'When chat falls under this, the peak is over.' },
+      { key: 'postroll_s', adv: true, label: 'Keep after chat fell back', min: 0, max: 30, step: 1, unit: 's', help: 'Seconds kept after the peak ended (within the limit above).' },
+      { key: 'manual_postroll_s', adv: true, label: 'Clip now: after the press', min: 0, max: 60, step: 1, unit: 's', help: 'Seconds kept after you pressed Clip now.' },
+      { key: 'smooth_s', adv: true, label: 'Smoothing', min: 1, max: 30, step: 1, unit: 's', help: 'Averages the rate over this many seconds.' },
+      { key: 'baseline_window_s', adv: true, label: 'Normal is measured over', min: 60, max: 1800, step: 30, unit: 's', help: 'How far back "normal chat" looks. Shorter follows chat faster.' },
+      { key: 'recent_baseline_s', adv: true, label: 'Quick lift of normal', min: 0, max: 600, step: 10, unit: 's', help: 'If chat over this long is busier, that becomes normal (0 = off).' },
+      { key: 'bin_s', adv: true, label: 'Bin size', min: 0.5, max: 5, step: 0.5, unit: 's', help: 'Chat is counted in bins this long. Changing it restarts detection.' },
+    ],
+    // Global settings in the folded "Advanced: recording, rendering and app" card.
+    sysFields: [
+      { sec: 'capture', key: 'buffer_minutes', type: 'range', label: 'Video buffer', min: 1, max: 15, step: 0.5, unit: 'min', help: 'How far back a clip can reach. About 26 MB of disk per minute per stream.' },
+      { sec: 'capture', key: 'snapshot_interval_s', type: 'range', label: 'Snapshot every', min: 1, max: 30, step: 1, unit: 's', help: 'How often the stream cards get a new still frame.' },
+      { sec: 'capture', key: 'quality', type: 'text', label: 'Stream quality', help: 'streamlink quality preference, best first, e.g. 720p60,720p,best.' },
+      { sec: 'capture', key: 'low_latency', type: 'bool', label: 'Low latency', help: 'Twitch low-latency mode: smaller, steadier chat-to-video offset.' },
+      { sec: 'capture', key: 'filter_ads', type: 'bool', label: 'Filter ads', help: 'Drop ad segments (clips overlapping an ad gap are dropped).' },
+      { sec: 'twitch', key: 'live_check_interval_s', type: 'range', label: 'Live check every', min: 5, max: 300, step: 5, unit: 's', help: 'How often every streamer is checked for being live.' },
+      { sec: 'general', key: 'retention_days', type: 'range', label: 'Keep clip files for', min: 0, max: 60, step: 1, unit: 'days', help: '0 keeps everything.' },
+      { sec: 'general', key: 'max_concurrent_renders', type: 'range', label: 'Renders at once', min: 1, max: 4, step: 1, unit: '', help: 'More is faster but uses more CPU.' },
+      { sec: 'render', key: 'default_layout', type: 'select', label: 'Default layout', options: ['blur_fit', 'crop', 'stacked'], help: 'For streamers without their own layout.' },
+      { sec: 'render', key: 'fit_zoom', type: 'range', label: 'Blur fit zoom', min: 0.5, max: 3, step: 0.05, unit: '×', help: 'Above 1 enlarges the picture and trims the sides.' },
+      { sec: 'render', key: 'burn_title', type: 'bool', label: 'Burn in the streamer name', help: 'Draw the channel name on the video.' },
+      { sec: 'tiktok', key: 'headless', type: 'bool', label: 'Hide the upload browser', help: 'Off shows the browser window while uploading.' },
+      { sec: 'tiktok', key: 'browser_channel', type: 'select', options: ['chromium', 'chrome', 'msedge'], label: 'Upload browser', help: 'chrome or msedge need that browser installed.' },
     ],
 
     view: 'streams',
@@ -956,6 +979,7 @@ document.addEventListener('alpine:init', () => {
       { id: 'failed', label: 'Failed, dropped and rejected' },
     ],
     confirmDeleteClip: null,
+    ignoreDraft: null,  // the ignored-chatters text while it's being edited
     focusMuted: false,  // the focus view's sound; stays as you set it while switching streams
     clipSize: (() => { try { const v = +localStorage.getItem('argus.clipSize'); return v >= 25 && v <= 90 ? v : 70; } catch { return 70; } })(),
     tabStatuses: {
@@ -1354,6 +1378,21 @@ document.addEventListener('alpine:init', () => {
       const s = this.config?.streamers.find(x => x.name.toLowerCase() === this.detScope);
       return !!s && s[key] !== undefined && s[key] !== null;
     },
+    sysValue(f) { return this.config?.[f.sec]?.[f.key]; },
+    setSys(f, value) {
+      if (!this.config) return;
+      this.config[f.sec][f.key] = value;  // move the control at once; the reply confirms it
+      clearTimeout((this._sysTimers ||= {})[f.key]);
+      this._sysTimers[f.key] = setTimeout(() => this.patchConfig({ [f.sec]: { [f.key]: value } }), f.type === 'range' ? 300 : 0);
+    },
+    detIgnoreText() {
+      const v = this.detValue('ignore_users');
+      return Array.isArray(v) ? v.join(', ') : '';
+    },
+    setDetIgnore(text) {
+      this.setDet('ignore_users', text.split(/[\s,]+/).map(x => x.trim().toLowerCase()).filter(Boolean));
+    },
+
     setDet(key, value) {
       this.detPending[key] = value;
       clearTimeout(this._detTimer);

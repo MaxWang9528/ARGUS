@@ -22,7 +22,8 @@ live_check_interval_s = 20       # seconds between live checks (a stream start c
 [detection]                    # defaults for every streamer; a [[streamers]] entry can override any of these
 bin_s = 1
 smooth_s = 5
-baseline_window_s = 600        # how far back "normal chat" is measured
+baseline_window_s = 300        # how far back "normal chat" is measured (shorter = follows chat faster)
+recent_baseline_s = 90         # if chat over this long is busier, that becomes normal (0 = off)
 multiplier = 3.0               # a peak needs chat at this many times normal
 z_threshold = 4.0
 min_msgs_per_sec = 2.0

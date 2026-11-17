@@ -642,7 +642,7 @@
         </div>
         <p class="small muted" x-text="detScope ? 'Changes here apply to ' + detScope + ' only. Marked settings differ from the defaults.' : 'Defaults for every streamer. Changes apply as you move a slider and are saved to the config.'"></p>
         <div class="sliders" x-show="config">
-          <template x-for="f in detFields" :key="f.key">
+          <template x-for="f in detFields.filter(f => !f.adv)" :key="f.key">
             <div class="slider" :class="{ override: detScope && isOverride(f.key) }">
               <label :for="'det-' + f.key" x-text="f.label"></label>
               <output x-text="fmtNum(detValue(f.key), f.step) + (f.unit ? ' ' + f.unit : '')"></output>
@@ -655,6 +655,67 @@
           </template>
         </div>
       </div>
+
+      <details class="card panel fold" data-testid="adv-detection">
+        <summary><h2>Advanced detection</h2><span class="small muted" x-text="detScope ? 'for ' + detScope : 'all streamers'"></span></summary>
+        <div class="sliders" x-show="config">
+          <template x-for="f in detFields.filter(f => f.adv)" :key="f.key">
+            <div class="slider" :class="{ override: detScope && isOverride(f.key) }">
+              <label :for="'det-' + f.key" x-text="f.label"></label>
+              <output x-text="fmtNum(detValue(f.key), f.step) + (f.unit ? ' ' + f.unit : '')"></output>
+              <input type="range" :id="'det-' + f.key" :min="f.min" :max="f.max" :step="f.step"
+                     :value="detValue(f.key)" @input="setDet(f.key, +$event.target.value)">
+              <button type="button" class="link small" x-show="detScope && isOverride(f.key)"
+                      @click="clearOverride(f.key)">Use default</button>
+              <p class="help" x-text="f.help"></p>
+            </div>
+          </template>
+          <label class="field">
+            <span class="field-label">Ignored chatters <small class="muted">bots; comma separated</small></span>
+            <input type="text" data-testid="ignore-users" :value="ignoreDraft ?? detIgnoreText()"
+                   @input="ignoreDraft = $event.target.value" @change="setDetIgnore($event.target.value); ignoreDraft = null">
+          </label>
+        </div>
+      </details>
+
+      <details class="card panel fold" data-testid="adv-system">
+        <summary><h2>Advanced: recording, rendering and app</h2><span class="small muted">all streamers</span></summary>
+        <div class="sliders" x-show="config">
+          <template x-for="f in sysFields" :key="f.sec + '.' + f.key">
+            <div class="slider" :data-testid="'sys-' + f.key">
+              <template x-if="f.type === 'range'">
+                <div>
+                  <label :for="'sys-' + f.key" x-text="f.label"></label>
+                  <output x-text="fmtNum(sysValue(f), f.step) + (f.unit ? ' ' + f.unit : '')"></output>
+                  <input type="range" :id="'sys-' + f.key" :min="f.min" :max="f.max" :step="f.step"
+                         :value="sysValue(f)" @input="setSys(f, +$event.target.value)">
+                </div>
+              </template>
+              <template x-if="f.type === 'bool'">
+                <label class="row" style="gap: 8px">
+                  <input type="checkbox" :checked="!!sysValue(f)" @change="setSys(f, $event.target.checked)">
+                  <span x-text="f.label"></span>
+                </label>
+              </template>
+              <template x-if="f.type === 'select'">
+                <label class="field">
+                  <span class="field-label" x-text="f.label"></span>
+                  <select :value="sysValue(f)" @change="setSys(f, $event.target.value)">
+                    <template x-for="o in f.options" :key="o"><option :value="o" x-text="o" :selected="o === sysValue(f)"></option></template>
+                  </select>
+                </label>
+              </template>
+              <template x-if="f.type === 'text'">
+                <label class="field">
+                  <span class="field-label" x-text="f.label"></span>
+                  <input type="text" :value="sysValue(f)" @change="setSys(f, $event.target.value.trim())">
+                </label>
+              </template>
+              <p class="help" x-text="f.help"></p>
+            </div>
+          </template>
+        </div>
+      </details>
 
       <div class="card panel">
         <div class="panel-head">

@@ -615,3 +615,11 @@ legend { font-size: 12px; font-weight: 600; padding: 0 4px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Foldable settings cards on the Debug page */
+details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2 { margin: 0; }
+details.fold > summary::before { content: "\25B8"; color: var(--ink-3); transition: transform .15s; display: inline-block; }
+details.fold[open] > summary::before { transform: rotate(90deg); }
+details.fold[open] > summary { margin-bottom: 12px; }

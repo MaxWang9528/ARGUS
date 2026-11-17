@@ -17,7 +17,7 @@ The signal:
   deviation, never below ``MIN_SPREAD`` (integer counts make the MAD exactly 0
   in quiet chats);
 - ``z = (rate - baseline) / spread``;
-- if the median of the last ``RECENT_BASELINE_S`` is higher, it is the baseline
+- if the median of the last ``recent_baseline_s`` is higher, it is the baseline
   instead (a step to a new chat level is not a peak), and after
   ``DORMANT_AFTER_S`` of total silence the 60 s warm-up starts again.
 """
@@ -44,7 +44,6 @@ MIN_SPREAD = 0.25         # msgs/s; floor for the spread so silent chat can't gi
 MIN_HISTORY_S = 60.0      # no peak can start before this much history
 MAX_RISE_LOOKBACK_S = 20.0  # ts_start is at most this far before the bin that triggered
 MAX_PER_USER_PER_S = 2.0  # one user counts for at most this many msgs/s (stops a lone spammer)
-RECENT_BASELINE_S = 120.0  # a short-window median that lifts the baseline after a level step
 DORMANT_AFTER_S = 120.0   # this long with no chat (offline, disconnected) restarts the warm-up
 
 
@@ -156,15 +155,15 @@ class PeakTracker:
         base = statistics.median(rates)
         return base, statistics.median(abs(r - base) for r in rates)
 
-    def _baseline(self, end: float, bin_s: float) -> tuple[float, float]:
+    def _baseline(self, end: float, bin_s: float, recent_s: float) -> tuple[float, float]:
         """Median and spread of the history. When the median of the last
-        RECENT_BASELINE_S is higher (chat stepped up to a new level, e.g. the
+        ``recent_s`` is higher (chat stepped up to a new level, e.g. the
         stream went live), that one is used, so a level change isn't a peak."""
         if not self._history:
             return 0.0, MIN_SPREAD
         base, mad = self._median_mad([r for _, r in self._history])
-        recent = [r for ts, r in self._history if ts > end - RECENT_BASELINE_S]
-        if len(recent) * bin_s >= RECENT_BASELINE_S / 4:
+        recent = [r for ts, r in self._history if ts > end - recent_s] if recent_s > 0 else []
+        if recent and len(recent) * bin_s >= recent_s / 4:
             r_base, r_mad = self._median_mad(recent)
             if r_base > base:
                 base, mad = r_base, r_mad
@@ -190,7 +189,7 @@ class PeakTracker:
         if self._active is not None:
             base, spread = self._active.baseline, self._active.spread
         else:
-            base, spread = self._baseline(end, bin_s)
+            base, spread = self._baseline(end, bin_s, det.recent_baseline_s)
         z = (rate - base) / spread
         threshold = max(base * det.multiplier, base + det.z_threshold * spread, det.min_msgs_per_sec)
 
