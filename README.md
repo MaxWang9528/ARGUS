@@ -92,7 +92,7 @@ Other commands:
 
 ### 4. Video buffer (`livewatcher/capture/`)
 
-- **Live check:** every `live_check_interval_s` (60 s), using Helix if `[twitch]` keys are set, otherwise streamlink (about 0.3–1.2 s per channel).
+- **Live check:** every `live_check_interval_s` (20 s), and at once when chat spikes on a channel that looks offline (a stream that just started can take a minute or two to show as live). It uses Helix if `[twitch]` keys are set, otherwise streamlink (about 0.3–1.2 s per channel).
 - **Recording:** each live streamer gets one recorder worker process.
   - The worker uses streamlink's Twitch HLS reader with low latency on, and writes Twitch's own **2 s segments** to `buffer/<streamer>/` without re-encoding them. They are `.ts`, or self-contained `.mp4` when Twitch serves fMP4.
   - Every segment is dated with Twitch's `PROGRAM-DATE-TIME`, not with the time it arrived.
@@ -110,6 +110,7 @@ Other commands:
   - −2.0 is an estimate of viewer delay, not a measurement.
   - To tune it, clip a moment you recognise on a live stream and check it's in the clip. The Debug tab has a slider for this.
 - **Clip window** = `peak_start − preroll_s` (25 s) to `peak_end + postroll_s` (6 s), capped at `max_clip_s` (60 s).
+- **Clip now** shifts that window 5 s later: 20 s before the press to 11 s after it, so the clip includes what happens just after you press.
 
 ### 6. Clip life cycle (`livewatcher/app.py`, `ClipService`)
 

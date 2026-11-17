@@ -73,6 +73,9 @@ class ClipService:
     """Turns peaks into clips and carries out the dashboard's clip actions."""
 
     WAIT_GRACE_S = 120.0  # how long past window_end to wait for the buffer
+    # "Clip now": the window is shifted this much later than an automatic clip's
+    # (5 s less before the press, 5 s more after it).
+    MANUAL_SHIFT_S = 5.0
 
     def __init__(self, app: App) -> None:
         self.app = app
@@ -108,15 +111,19 @@ class ClipService:
         self.app.db.save_peak(peak)
         status = self.app.recorder.status(peak.streamer)
         if not status.live:
-            log.info("peak ignored: streamer is offline", extra={"streamer": peak.streamer})
+            log.info("peak ignored: streamer is offline (checking again now)", extra={"streamer": peak.streamer})
+            recheck = getattr(self.app.recorder, "request_live_check", None)  # not in the protocol
+            if recheck is not None:
+                recheck()
             return None
         wanted = {c.strip().lower() for c in cfg.general.clip_categories if c.strip()}
         if wanted and peak.source == "auto" and status.category.strip().lower() not in wanted:
             log.info("peak ignored: playing %s, not %s", status.category or "an unknown category",
                      " / ".join(cfg.general.clip_categories), extra={"streamer": peak.streamer})
             return None
-        start = peak.ts_start - det.preroll_s
-        end = min(peak.ts_end + det.postroll_s, start + det.max_clip_s)
+        shift = self.MANUAL_SHIFT_S if peak.source == "manual" else 0.0
+        start = peak.ts_start - det.preroll_s + shift
+        end = min(peak.ts_end + det.postroll_s + shift, start + det.max_clip_s)
         if status.buffer_start is not None and start < status.buffer_start - 1.0 and peak.source == "auto":
             log.info("peak ignored: buffer doesn't cover the pre-roll yet", extra={"streamer": peak.streamer})
             return None

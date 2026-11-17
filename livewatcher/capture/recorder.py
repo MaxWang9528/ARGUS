@@ -150,6 +150,12 @@ class Recorder:
             buffer_end=None if end is None else end - off,
             last_error=st.last_error)
 
+    def request_live_check(self) -> None:
+        """Run the live check at the next tick instead of waiting for the interval.
+        Called when chat spikes on a channel we think is offline: a stream that just
+        started can take a while to show as live."""
+        self._next_check = 0.0
+
     def window_ready(self, streamer: str, end_ts: float) -> bool:
         if not self._running:
             raise WindowUnavailable("the recorder is not running")

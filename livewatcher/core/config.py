@@ -40,7 +40,7 @@ class General(_Model):
 class Twitch(_Model):
     client_id: str = ""
     client_secret: str = ""
-    live_check_interval_s: int = 60
+    live_check_interval_s: int = 20  # a stream can take a minute or two to show as live
 
 
 class Detection(_Model):

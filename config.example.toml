@@ -15,7 +15,7 @@ clip_categories = ["Grand Theft Auto VI"]
 [twitch]                       # optional: Helix keys for faster live checks and titles
 client_id = ""
 client_secret = ""
-live_check_interval_s = 60
+live_check_interval_s = 20       # seconds between live checks (a stream start can take 1-2 min to show)
 
 [detection]                    # defaults for every streamer; a [[streamers]] entry can override any of these
 bin_s = 1

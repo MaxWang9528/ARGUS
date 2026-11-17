@@ -168,8 +168,12 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     save = page.locator("[data-testid=save-layout]")
     assert save.is_enabled()
     save.click()
-    page.wait_for_function("() => document.querySelector('[data-testid=save-layout]').disabled")
-    saved = server.app.store.get().streamer(DEMO_STREAMERS[0])
+    # The button disables as soon as the save starts, so wait for the config itself.
+    for _ in range(50):
+        saved = server.app.store.get().streamer(DEMO_STREAMERS[0])
+        if saved.layout == "crop":
+            break
+        page.wait_for_timeout(100)
     assert saved.layout == "crop" and saved.crop_x == 0.2
     if shots:
         page.screenshot(path=f"{shots}/debug.png", full_page=True)
