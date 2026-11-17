@@ -124,25 +124,32 @@ def _peak(source: str = "auto"):
     return PeakEvent(streamer="alpha", ts_start=now, ts_peak=now, ts_end=now, source=source)
 
 
-def test_category_gate_drops_other_games(store: ConfigStore, monkeypatch) -> None:
-    store.update({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
+def test_any_category_is_clipped_and_sets_the_caption(store: ConfigStore, monkeypatch) -> None:
+    store.update({"tiktok": {"caption_template": "{streamer} {category}",
+                             "category_captions": [{"category": "Grand Theft Auto VI", "caption": "{streamer} GTA6"}]}})
     app = App(store, demo=True, serve=False)
     monkeypatch.setattr(app.clips, "_spawn", lambda coro: coro.close())
     monkeypatch.setattr(app.recorder, "status", _Status("World of Warcraft"))
-    assert app.clips.on_peak(_peak()) is None
-    monkeypatch.setattr(app.recorder, "status", _Status(""))  # unknown: fail closed
-    assert app.clips.on_peak(_peak()) is None
+    assert app.clips.on_peak(_peak()).caption == "alpha World of Warcraft"
     monkeypatch.setattr(app.recorder, "status", _Status("grand theft auto vi"))
-    assert app.clips.on_peak(_peak()) is not None
-    monkeypatch.setattr(app.recorder, "status", _Status("Just Chatting"))
-    assert app.clips.on_peak(_peak("manual")) is not None  # clip now always works
+    assert app.clips.on_peak(_peak()).caption == "alpha GTA6"
+    monkeypatch.setattr(app.recorder, "status", _Status(""))
+    assert app.clips.on_peak(_peak()).caption == "alpha"
 
 
-def test_no_category_filter_by_default(store: ConfigStore, monkeypatch) -> None:
+def test_auto_clip_off_skips_auto_peaks_only(store: ConfigStore, monkeypatch) -> None:
+    store.update({"general": {"auto_clip": False}})
     app = App(store, demo=True, serve=False)
     monkeypatch.setattr(app.clips, "_spawn", lambda coro: coro.close())
     monkeypatch.setattr(app.recorder, "status", _Status("Just Chatting"))
-    assert app.clips.on_peak(_peak()) is not None
+    assert app.clips.on_peak(_peak()) is None
+    assert app.clips.on_peak(_peak("manual")) is not None  # clip now always works
+
+
+def test_old_clip_categories_key_still_loads(tmp_path) -> None:
+    from livewatcher.core.config import Config
+    cfg = Config.model_validate({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
+    assert cfg.general.priority_categories == ["Grand Theft Auto VI"]
 
 
 def test_clip_rates_saved_and_read_back(store: ConfigStore) -> None:

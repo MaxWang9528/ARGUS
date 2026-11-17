@@ -168,11 +168,14 @@ async def test_crashed_worker_is_restarted_with_a_clean_buffer(store: ConfigStor
         await until(lambda: rec.status("alpha").recorder_state == "error")
         assert "crashed" in rec.status("alpha").last_error or "code 1" in rec.status("alpha").last_error
         await until(lambda: rec.status("alpha").recorder_state == "recording")
-        # after a restart only the new run's segments are on disk
-        await asyncio.sleep(0.05)
-        files = {p.name for p in rec.buffer_dir("alpha").glob("seg_*")}
-        listed = {s.file for s in rec._streams["alpha"].index.segments}
-        assert files <= listed | {f.name for f in rec.buffer_dir("alpha").glob("*.part")}
+        # after a restart only the new run's segments are on disk. A segment is renamed
+        # into place a moment before its JSON line reaches the parent, so wait for them
+        # to agree rather than comparing one instant.
+        def on_disk_are_listed() -> bool:
+            files = {p.name for p in rec.buffer_dir("alpha").glob("seg_*")}
+            listed = {s.file for s in rec._streams["alpha"].index.segments}
+            return files <= listed | {f.name for f in rec.buffer_dir("alpha").glob("*.part")}
+        await until(on_disk_are_listed)
     assert len(pids) >= 3
     assert not any(alive(p) for p in pids)
 
@@ -319,7 +322,7 @@ async def test_max_streamers_records_only_the_top(store: ConfigStore, bus: Event
         await until(lambda: not alive(pid), timeout=3)
 
         # a GTA stream outranks everyone regardless of viewers
-        store.update({"general": {"clip_categories": ["Grand Theft Auto VI"]}})
+        store.update({"general": {"priority_categories": ["Grand Theft Auto VI"]}})
         live.categories["alpha"] = "Grand Theft Auto VI"
         rec.request_live_check()
         await until(lambda: rec.status("alpha").recorder_state == "recording")

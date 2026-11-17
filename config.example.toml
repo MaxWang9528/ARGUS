@@ -2,16 +2,17 @@
 # config.toml is ignored by git, so secrets in it stay on this machine.
 
 [general]
-data_dir = "~/.local/share/livewatcher"   # buffers, clips, database
+data_dir = "clips"             # buffers, clips, database, browser logins; relative = inside this project folder
 auto_upload = false            # also switchable from the dashboard
+auto_clip = true               # clip the peaks the detector finds (off: only "Clip now"); also a dashboard switch
 dashboard_host = "127.0.0.1"
 dashboard_port = 8787
 max_concurrent_renders = 1
 retention_days = 7             # delete raw and rendered clip files older than this (0 = keep)
-# Only clip peaks automatically while the stream's Twitch category is one of these
-# (exact Twitch names, case-insensitive). [] clips any category. "Clip now" ignores it.
-clip_categories = ["Grand Theft Auto VI"]
-max_streamers = 12             # record at most this many live streamers at once (0 = no limit): clip_categories first, then most viewers; ~80 MB RAM and 0.4 MB/s each
+# When max_streamers limits recording, streams in these Twitch categories (exact names,
+# case-insensitive) are recorded first. Not a filter: peaks in any category are clipped.
+priority_categories = ["Grand Theft Auto VI"]
+max_streamers = 12             # record at most this many live streamers at once (0 = no limit): priority_categories first, then most viewers; ~80 MB RAM and 0.4 MB/s each
 
 [twitch]                       # optional: Helix keys for faster live checks and titles
 client_id = ""
@@ -49,20 +50,27 @@ resolution = "1080x1920"
 burn_title = true
 
 [tiktok]
-browser_profile_dir = "~/.local/share/livewatcher/browser_profile"
+browser_profile_dir = ""       # "" = <data_dir>/browser_profile
 browser_channel = "chromium"   # or "chrome" if Google Chrome is installed
 cookies_file = ""              # fallback if TikTok blocks the in-app login
 headless = false
 dry_run = true                 # never click Post; what happens instead is set by dry_run_mode
 dry_run_mode = "stop"          # "stop": stop on the filled-in form and save a screenshot
                                # "draft": click Save draft, so the clip lands in your TikTok drafts (not posted)
-caption_template = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
+# Caption for new clips: {streamer} = channel, {category} = the stream's Twitch category.
+# A [[tiktok.category_captions]] entry below replaces it for one category.
+caption_template = "{streamer} 🔴 {category} on Twitch #{streamer} #twitch #clips"
 max_uploads_per_day = 6          # these two limits (and browser_profile_dir, cookies_file)
 min_minutes_between_uploads = 45 # apply to the implicit "default" account, used when no
                                  # [[tiktok.accounts]] are listed below
 cycle_accounts = false           # true: each upload goes to the next account with a free slot, in turn
                                  # false: always the first account (in list order) with a free slot
 max_queue_age_h = 6              # a queued clip with no free slot for this many hours is dropped (0 = never)
+
+# Captions for particular categories (exact Twitch name, case-insensitive).
+[[tiktok.category_captions]]
+category = "Grand Theft Auto VI"
+caption = "{streamer} playing GTA 6 🔴 #gta6 #gtavi #gta #{streamer} #twitch"
 
 # More than one TikTok account: list them here (this replaces the "default" account).
 # Each has its own browser profile; log each one in with `./lw login-tiktok --account NAME`

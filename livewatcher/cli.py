@@ -20,7 +20,7 @@ from .core.config import Config, ConfigStore, General, Streamer
 DEMO_STREAMERS = ["demo_alpha", "demo_beta", "demo_gamma"]
 
 
-def demo_store(data_dir: str = "~/.local/share/livewatcher/demo") -> ConfigStore:
+def demo_store(data_dir: str = "clips/demo") -> ConfigStore:
     """An in-memory config for the demo. Nothing is written to config.toml."""
     return ConfigStore(config=Config(
         general=General(data_dir=data_dir),

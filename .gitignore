@@ -7,3 +7,6 @@ __pycache__/
 .claude/worktrees/
 data/
 *.log
+
+# app data: buffers, clips, database, browser logins
+clips/

@@ -67,8 +67,8 @@ Read settings with `store.get()` each time you need them. Never cache a `Config`
 
 **Clips:** after changing a clip, always `db.save_clip(clip)` then `bus.publish(Topic.CLIP, clip)`.
 
-## Game filter (Phase 2)
-`StreamStatus.category` is the Twitch category from the last live check (streamlink or Helix `game_name`), `""` when unknown. When `general.clip_categories` is non-empty, `ClipService` ignores **auto** peaks unless the category matches one of them (case-insensitive); an unknown category counts as no match. Manual clips are never filtered.
+## Auto-clip and captions
+`StreamStatus.category` is the Twitch category from the last live check, `""` when unknown. It does not filter clips. `general.auto_clip = false` makes `ClipService` ignore **auto** peaks; manual clips always work. A new clip's caption is `cfg.caption_for(streamer, category)`: the first `tiktok.category_captions` entry whose category matches (case-insensitive), else `tiktok.caption_template`, formatted with `{streamer}` and `{category}`. The old key `general.clip_categories` still loads, as `priority_categories`.
 
 ## Retention (Phase 2)
 Every hour the app deletes the raw, rendered and screenshot files of clips older than `general.retention_days` (0 keeps everything), except clips still in progress. The clip row stays, with its file paths cleared. `clips/tmp/` folders older than a day go too. Chat logs are kept.
@@ -112,7 +112,7 @@ The static dashboard is served from `web/` at `/`.
 
 ### Streamers (branch `feat/popular`)
 - `StreamStatus.viewers` (int or None) comes from every live check: Helix `viewer_count` when `[twitch]` keys are set, otherwise looked up without keys. Unknown is `None`, and sorts last.
-- `general.max_streamers` (0 = no limit): at each live check the recorder ranks enabled live streamers as **(category in `clip_categories` first, then viewers, highest first)** and records only the top N. The others get `StreamStatus.watched = False`, no recorder process and no buffer. Their chat is still read and their rate is still published.
+- `general.max_streamers` (0 = no limit): at each live check the recorder ranks enabled live streamers as **(category in `priority_categories` first, then viewers, highest first)** and records only the top N. The others get `StreamStatus.watched = False`, no recorder process and no buffer. Their chat is still read and their rate is still published.
   - To avoid churn, a watched streamer is only displaced by one with at least 20% more viewers.
   - `ClipService` ignores peaks from unwatched streamers.
 - `config.example.toml` lists many streamers, the most popular first.

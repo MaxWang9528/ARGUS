@@ -1222,6 +1222,7 @@ document.addEventListener('alpine:init', () => {
 
     /* ---- config ------------------------------------------------------------ */
     get autoUpload() { return !!this.config?.general.auto_upload; },
+    get autoClip() { return !!this.config && this.config.general.auto_clip !== false; },
 
     async patchConfig(patch, okText) {
       try {
@@ -1235,6 +1236,12 @@ document.addEventListener('alpine:init', () => {
         try { this.setConfig(await api('GET', '/config')); } catch { /* ignore */ }
         return null;
       }
+    },
+
+    setAutoClip(on) {
+      this.config.general.auto_clip = on;  // move the switch at once; the reply confirms it
+      this.patchConfig({ general: { auto_clip: on } },
+        on ? 'Auto-clip is on: peaks are clipped.' : 'Auto-clip is off: peaks are logged, only Clip now makes clips.');
     },
 
     setAutoUpload(on) {
@@ -1383,6 +1390,7 @@ document.addEventListener('alpine:init', () => {
         max_uploads_per_day: t.max_uploads_per_day,
         min_minutes_between_uploads: t.min_minutes_between_uploads,
         caption_template: t.caption_template,
+        category_captions: JSON.parse(JSON.stringify(t.category_captions || [])),
         max_queue_age_h: t.max_queue_age_h ?? 6,
         dirty: false,
       };
@@ -1396,6 +1404,10 @@ document.addEventListener('alpine:init', () => {
     async saveLimits() {
       const { dirty, ...tiktok } = this.limits;
       tiktok.max_queue_age_h = +tiktok.max_queue_age_h;
+      // rows left half-empty are dropped; the list replaces the saved one
+      tiktok.category_captions = (tiktok.category_captions || [])
+        .map(r => ({ category: (r.category || '').trim(), caption: (r.caption || '').trim() }))
+        .filter(r => r.category && r.caption);
       if (await this.patchConfig({ tiktok }, 'Upload limits saved.')) this.limits.dirty = false;
     },
 

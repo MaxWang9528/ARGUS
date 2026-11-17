@@ -32,6 +32,12 @@
   <div class="top-right">
     <span class="chip warn" x-show="config && config.tiktok.dry_run" :title="config?.tiktok.dry_run_mode === 'draft' ? 'Uploads are saved to TikTok drafts, never posted' : 'Uploads stop before the Post button'" x-text="config?.tiktok.dry_run_mode === 'draft' ? 'Dry run: drafts' : 'Dry run'">Dry run</span>
     <span class="chip" x-show="isDemo" title="Every part is a stand-in: no Twitch, no TikTok">Demo</span>
+    <label class="switch header-switch" :class="{ on: autoClip }" title="Clip the peaks the detector finds. Off: only Clip now makes clips.">
+      <input type="checkbox" role="switch" data-testid="auto-clip" :checked="autoClip"
+             :disabled="!config" @change="setAutoClip($event.target.checked)">
+      <span class="track" aria-hidden="true"></span>
+      <span class="switch-label">Auto-clip <b x-text="autoClip ? 'on' : 'off'"></b></span>
+    </label>
     <label class="switch header-switch" :class="{ on: autoUpload }">
       <input type="checkbox" role="switch" data-testid="auto-upload" :checked="autoUpload"
              :disabled="!config" @change="setAutoUpload($event.target.checked)">
@@ -814,9 +820,23 @@
           <span class="help">A clip that finds no free upload slot within this time is dropped, so the queue doesn't post stale moments.</span>
         </label>
         <label class="field wide">
-          <span class="field-label">Caption for new clips <small class="muted">{streamer} becomes the channel name</small></span>
-          <input type="text" x-model="limits.caption_template" @input="limits.dirty = true">
+          <span class="field-label">Caption for new clips <small class="muted">{streamer} = channel, {category} = the game</small></span>
+          <input type="text" data-testid="caption-template" x-model="limits.caption_template" @input="limits.dirty = true">
         </label>
+        <div class="field wide">
+          <span class="field-label">Captions for particular games <small class="muted">exact Twitch category name; replaces the caption above</small></span>
+          <template x-for="(row, i) in (limits.category_captions || [])" :key="i">
+            <div class="row" style="gap: 8px; margin-top: 6px" data-testid="category-caption-row">
+              <input type="text" style="flex: 0 0 34%" placeholder="Grand Theft Auto VI" x-model="row.category" @input="limits.dirty = true">
+              <input type="text" style="flex: 1" placeholder="{streamer} playing GTA 6 #gta6" x-model="row.caption" @input="limits.dirty = true">
+              <button type="button" class="btn" @click="limits.category_captions.splice(i, 1); limits.dirty = true" aria-label="Remove this caption">Remove</button>
+            </div>
+          </template>
+          <div style="margin-top: 6px">
+            <button type="button" class="btn" data-testid="add-category-caption"
+                    @click="(limits.category_captions ||= []).push({ category: '', caption: '' }); limits.dirty = true">Add a game caption</button>
+          </div>
+        </div>
         <div class="row-actions">
           <button type="button" class="btn" :disabled="!limits.dirty" @click="loadLimits()">Discard changes</button>
           <button type="submit" class="btn primary" :disabled="!limits.dirty">Save limits</button>

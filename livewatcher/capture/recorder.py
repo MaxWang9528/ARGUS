@@ -378,7 +378,7 @@ class Recorder:
         picked = set(pick_watched(
             [Candidate(st.name, st.category, st.viewers) for st in live],
             [st.name for st in live if st.picked],
-            cfg.general.max_streamers, cfg.general.clip_categories))
+            cfg.general.max_streamers, cfg.general.priority_categories))
         for name in enabled:
             st = self._stream(name)
             was = st.watched

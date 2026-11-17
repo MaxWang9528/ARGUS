@@ -8,14 +8,24 @@ need them, so changes made in the dashboard apply at once.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
 import tomlkit
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .events import EventBus, Topic
+
+# Relative paths in the config (data_dir, profile folders) are relative to the project folder.
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+
+
+def resolve_path(path: str) -> Path:
+    p = Path(os.path.expanduser(path))
+    return p if p.is_absolute() else PROJECT_DIR / p
+
 
 LayoutName = Literal["blur_fit", "crop", "stacked"]
 LAYOUTS: tuple[str, ...] = ("blur_fit", "crop", "stacked")
@@ -26,19 +36,32 @@ class _Model(BaseModel):
 
 
 class General(_Model):
-    data_dir: str = "~/.local/share/livewatcher"
+    data_dir: str = "clips"  # relative = inside the project folder
     auto_upload: bool = False
+    # Clip peaks the detector finds. Off: peaks are still detected and logged, not clipped.
+    # "Clip now" works either way.
+    auto_clip: bool = True
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8787
     max_concurrent_renders: int = 1
     retention_days: int = 7
-    # Only clip peaks automatically while the stream's Twitch category is one of these
-    # (case-insensitive). Empty: any category. Manual "clip now" ignores it.
-    clip_categories: list[str] = Field(default_factory=list)
+    # Streams in these Twitch categories (case-insensitive) are recorded first when
+    # max_streamers limits how many are recorded. Not a filter: any category is clipped.
+    priority_categories: list[str] = Field(default_factory=list)
     # Record at most this many live streamers at once (0 = no limit). Picked in order:
-    # streamers in clip_categories first, then by viewer count, highest first. The rest
+    # streamers in priority_categories first, then by viewer count, highest first. The rest
     # are still checked and their chat is still read, but they aren't recorded or clipped.
     max_streamers: int = Field(0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _renamed_keys(cls, data: Any) -> Any:
+        # clip_categories (a clip filter) became priority_categories (recording priority)
+        if isinstance(data, dict) and "clip_categories" in data:
+            data = dict(data)
+            old = data.pop("clip_categories")
+            data.setdefault("priority_categories", old)
+        return data
 
 
 class Twitch(_Model):
@@ -92,8 +115,15 @@ class TikTokAccount(_Model):
     min_minutes_between_uploads: int = Field(45, ge=0)
 
 
+class CategoryCaption(_Model):
+    """The caption for clips from streams in one Twitch category."""
+
+    category: str = Field(min_length=1)  # exact Twitch name, case-insensitive
+    caption: str = Field(min_length=1)
+
+
 class TikTok(_Model):
-    browser_profile_dir: str = "~/.local/share/livewatcher/browser_profile"
+    browser_profile_dir: str = ""  # "" = <data_dir>/browser_profile (the "default" account)
     browser_channel: str = "chromium"
     cookies_file: str = ""
     headless: bool = False
@@ -101,7 +131,10 @@ class TikTok(_Model):
     # What a dry run does at the end: "stop" before Post (screenshot only), or "draft":
     # click Save draft, so the clip lands in TikTok's drafts but is never posted.
     dry_run_mode: Literal["stop", "draft"] = "stop"
-    caption_template: str = "{streamer} on Twitch 🔴 #{streamer} #twitch #clips"
+    # {streamer} = channel name, {category} = the stream's Twitch category ("" if unknown)
+    caption_template: str = "{streamer} 🔴 {category} on Twitch #{streamer} #twitch #clips"
+    # Captions for particular categories; the first match wins, else caption_template.
+    category_captions: list[CategoryCaption] = Field(default_factory=list)
     max_uploads_per_day: int = 6           # used by the implicit "default" account only
     min_minutes_between_uploads: int = 45  # used by the implicit "default" account only
     # Accounts to post to. Empty = one implicit account "default" that uses
@@ -161,20 +194,33 @@ class Config(_Model):
     # ---- helpers -------------------------------------------------------------
     @property
     def data_dir(self) -> Path:
-        return Path(os.path.expanduser(self.general.data_dir))
+        return resolve_path(self.general.data_dir)
+
+    def caption_for(self, streamer: str, category: str = "") -> str:
+        """The caption for a new clip of ``streamer`` while it streams ``category``."""
+        tk = self.tiktok
+        template = next((c.caption for c in tk.category_captions
+                         if c.category.strip().lower() == category.strip().lower() and category.strip()),
+                        tk.caption_template)
+        try:
+            text = template.format(streamer=streamer, category=category.strip())
+        except (KeyError, IndexError, ValueError):
+            text = template  # a template with stray braces is used as written
+        return re.sub(r"[ \t]{2,}", " ", text).strip()
 
     def tiktok_accounts(self) -> list[TikTokAccount]:
         """The configured accounts, or the implicit "default" one when none are listed.
         ``browser_profile_dir`` is always filled in (expanded, absolute)."""
         tk = self.tiktok
         accounts = tk.accounts or [TikTokAccount(
-            name="default", browser_profile_dir=tk.browser_profile_dir, cookies_file=tk.cookies_file,
+            name="default", browser_profile_dir=tk.browser_profile_dir or str(self.data_dir / "browser_profile"),
+            cookies_file=tk.cookies_file,
             max_uploads_per_day=tk.max_uploads_per_day,
             min_minutes_between_uploads=tk.min_minutes_between_uploads)]
         out = []
         for a in accounts:
             d = a.browser_profile_dir or str(self.data_dir / "accounts" / a.name / "browser_profile")
-            out.append(a.model_copy(update={"browser_profile_dir": str(Path(os.path.expanduser(d)))}))
+            out.append(a.model_copy(update={"browser_profile_dir": str(resolve_path(d))}))
         return out
 
     def enabled_streamers(self) -> list[Streamer]:

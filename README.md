@@ -2,7 +2,7 @@
 
 livewatcher watches Twitch streams live and works out when chat reacts to something. It then clips that moment from a rolling video buffer, renders a 9:16 vertical version and uploads it to TikTok. A local web dashboard shows the streams, the chat-rate graphs and a review queue for the clips.
 
-It is currently set up to clip **GTA 6** streams. GTA VI launches November 19, 2026, and the shipped config only clips automatically while a stream's Twitch category is "Grand Theft Auto VI".
+It is currently set up for **GTA 6** (launching November 19, 2026): GTA VI streams are recorded first and get a GTA 6 caption. Peaks in any game are clipped.
 
 ```
 Twitch chat (IRC) ──> chat rate per second ──> peak detector ──> peak (start … end)
@@ -82,18 +82,20 @@ Other commands:
 - Thresholds are re-read on every bin, so changes from the dashboard's Debug sliders apply immediately. Any `[detection]` key can be overridden per streamer.
 - The detector publishes one `RateSample` per bin, which feeds the graphs, and one `PeakEvent` when a peak ends.
 
-### 3. Game filter
+### 3. Auto-clip and game captions
 
-- The live check reports each stream's **Twitch category**. Without API keys it comes from streamlink's Twitch metadata; with Helix keys it is `game_name`.
-- When `general.clip_categories` is set, an **automatic** peak is clipped only if the stream's category matches one of the names, ignoring case.
-  - An unknown category counts as no match, so nothing is clipped when in doubt.
-  - **Clip now** in the dashboard always works.
-- Each card in the dashboard shows the category, and the log notes each change ("xqc is playing Grand Theft Auto VI").
+- **Auto-clip** (`general.auto_clip`, a switch in the dashboard header): on, every peak the detector finds is clipped. Off, peaks are still detected and logged but not clipped. **Clip now** always works.
+- The live check reports each stream's **Twitch category** (the game). It doesn't filter anything; it chooses the caption:
+  - `[[tiktok.category_captions]]` gives a caption for one category (exact Twitch name, ignoring case), e.g. "Grand Theft Auto VI" → `{streamer} playing GTA 6 🔴 #gta6 …`.
+  - Any other category uses `tiktok.caption_template`, where `{category}` becomes the game: "xqc 🔴 Valorant on Twitch #xqc …".
+  - Both are editable in Settings.
+- `general.priority_categories` (GTA VI in the example) only decides which streams are recorded first when `max_streamers` limits recording.
+- Each card shows the category, and the log notes each change ("xqc is playing Grand Theft Auto VI").
 
 ### 4. Video buffer (`livewatcher/capture/`)
 
 - **Live check:** every `live_check_interval_s` (20 s), and at once when chat spikes on a channel that looks offline (a stream that just started can take a minute or two to show as live). It uses Helix if `[twitch]` keys are set. Otherwise it sends one keyless query to Twitch's public web API, the same one streamlink uses, per 100 channels; this takes about 0.1 s for 62 channels. It falls back to streamlink, which is slower and gives no viewer counts. Each check gives live/offline, title, category and **viewer count**.
-- **Max streamers:** at most `general.max_streamers` (12 in the example) live streamers are recorded at once. They are ranked with streams in `clip_categories` first, then by viewers, highest first. A recorded streamer is only replaced by one with at least 20% more viewers, so the set doesn't keep changing. The others are marked "live, not recorded": their chat is still read, but they have no buffer and aren't clipped. 0 = no limit.
+- **Max streamers:** at most `general.max_streamers` (12 in the example) live streamers are recorded at once. They are ranked with streams in `priority_categories` first, then by viewers, highest first. A recorded streamer is only replaced by one with at least 20% more viewers, so the set doesn't keep changing. The others are marked "live, not recorded": their chat is still read, but they have no buffer and aren't clipped. 0 = no limit.
 - **Recording:** each live streamer gets one recorder worker process.
   - The worker uses streamlink's Twitch HLS reader with low latency on, and writes Twitch's own **2 s segments** to `buffer/<streamer>/` without re-encoding them. They are `.ts`, or self-contained `.mp4` when Twitch serves fMP4.
   - Every segment is dated with Twitch's `PROGRAM-DATE-TIME`, not with the time it arrived.
@@ -198,7 +200,9 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 | Key | Default | Meaning |
 |---|---|---|
 | `general.auto_upload` | `false` | Upload clips without review |
-| `general.clip_categories` | `["Grand Theft Auto VI"]` in the example | Only auto-clip streams in these Twitch categories; `[]` = any |
+| `general.auto_clip` | `true` | Clip the peaks the detector finds (off: only Clip now) |
+| `general.priority_categories` | `["Grand Theft Auto VI"]` in the example | Record these categories first when `max_streamers` applies |
+| `tiktok.category_captions` | GTA VI in the example | Caption per Twitch category; others use `caption_template` (`{streamer}`, `{category}`) |
 | `general.retention_days` | `7` | Delete clip files after this many days |
 | `twitch.client_id` / `client_secret` | empty | Optional Helix keys: faster batched live checks |
 | `detection.*` | see [Peak detection](#2-peak-detection-livewatcherdetectpeakpy) | Thresholds; also adjustable live in the Debug tab |
@@ -217,7 +221,7 @@ Every hour, the raw, rendered and screenshot files and the saved chat rates of c
 
 Each `[[streamers]]` entry has `name` and `enabled`, plus optional `layout`, `fit_zoom`, `crop_x`, `stack_top`, `stack_bottom` and `stack_split`. It can also override any `[detection]` key (for example `multiplier = 2.5` for a slower chat).
 
-### Files (under `general.data_dir`, default `~/.local/share/livewatcher`)
+### Files (under `general.data_dir`, default `clips/` in the project folder)
 
 | Path | What |
 |---|---|
@@ -231,7 +235,7 @@ Each `[[streamers]]` entry has `name` and `enabled`, plus optional `layout`, `fi
 | `upload_debug/` | Uploader screenshots |
 | `browser_profile/` | TikTok login |
 
-Keep `data_dir` on the Linux filesystem, not `/mnt/c`: the buffer writes constantly, and `/mnt/c` is slow.
+A relative `data_dir` (and relative profile folders) is resolved against the project folder, whatever directory you start from. `clips/` is gitignored. The TikTok logins live in `clips/browser_profile` and `clips/accounts/<name>/browser_profile`, so treat that folder as private.
 
 ---
 

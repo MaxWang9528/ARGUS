@@ -19,7 +19,9 @@ def test_example_config_is_valid(tmp_path):
     names = [s.name for s in cfg.streamers]
     assert len(names) >= 50 and len(set(names)) == len(names)
     assert cfg.general.max_streamers == 12
-    assert cfg.general.clip_categories == ["Grand Theft Auto VI"]
+    assert cfg.general.priority_categories == ["Grand Theft Auto VI"]
+    assert cfg.general.auto_clip is True
+    assert "GTA 6" in cfg.caption_for("x", "Grand Theft Auto VI")
     # per-streamer detection overrides
     path.write_text(_one_streamer(text), encoding="utf-8")
     store = ConfigStore(path)

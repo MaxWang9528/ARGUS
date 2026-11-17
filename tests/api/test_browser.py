@@ -262,9 +262,24 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     page.locator("[data-testid=nav-settings]").click()
     switch = page.locator("[data-testid=auto-upload]")
     assert not switch.is_checked()
-    page.locator("header .header-switch").click()
+    page.locator("header .header-switch", has_text="Auto-upload").click()
     page.wait_for_function("() => document.querySelector('[data-testid=auto-upload-big]').checked")
     assert server.app.store.get().general.auto_upload is True
+    # Auto-clip switch: off saves to the config, on again restores it
+    clip_switch = page.locator("[data-testid=auto-clip]")
+    assert clip_switch.is_checked()
+    page.locator("header .header-switch", has_text="Auto-clip").click()
+    for _ in range(50):
+        if server.app.store.get().general.auto_clip is False:
+            break
+        page.wait_for_timeout(100)
+    assert server.app.store.get().general.auto_clip is False
+    page.locator("header .header-switch", has_text="Auto-clip").click()
+    for _ in range(50):
+        if server.app.store.get().general.auto_clip is True:
+            break
+        page.wait_for_timeout(100)
+    assert server.app.store.get().general.auto_clip is True
     if shots:
         page.wait_for_timeout(400)  # let the switch finish moving
         page.screenshot(path=f"{shots}/settings.png")
