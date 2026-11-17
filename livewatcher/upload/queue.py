@@ -19,8 +19,10 @@ accounts, within each account's limits. See "Accounts" in docs/CONTRACTS.md.
   - a logged-out profile or a CAPTCHA pauses **that account** only (the others go on);
   - anything else blocked (TikTok's page changed, the browser can't start, an unclear
     state after Post) pauses **the whole queue**, because it would hit every account.
-  Every pause lifts when a clip is approved by hand or the config changes; an
-  account's pause also lifts when its login is checked and found good.
+  The whole-queue pause lifts when a clip is approved by hand or the config changes.
+  An account's pause lifts when its login is checked and found good or the config
+  changes; a hand approval lifts it only when every enabled account is paused (with
+  review on, every clip is approved by hand, so it would otherwise never hold).
 - A clip is never left in ``uploading`` (the dashboard can't act on that status):
   interrupted uploads become ``failed`` with a "check TikTok" note.
 """
@@ -256,7 +258,7 @@ class ClipUploadQueue:
                 if prev in _MANUAL_FROM:
                     self._transient.pop(payload.id, None)
                     self._queued_since[payload.id] = self._clock()
-                    self._resume(f"clip {payload.id} was approved")
+                    self._resume_on_approval(f"clip {payload.id} was approved")
                 else:
                     self._queued_since.setdefault(payload.id, self._clock())
             elif payload.status is not ClipStatus.UPLOADING:
@@ -280,8 +282,8 @@ class ClipUploadQueue:
         """Pause one account; the others keep uploading."""
         self._drain_events()
         self.account_paused[name] = reason
-        log.warning("TikTok account %s paused: %s. It resumes when its login checks out, you "
-                    "approve a clip again or change the settings.", name, reason)
+        log.warning("TikTok account %s paused: %s. It resumes when its login checks out (Check "
+                    "or Log in on the dashboard) or you change the settings.", name, reason)
 
     def resume_account(self, name: str, why: str = "its login checked out") -> None:
         if self.account_paused.pop(name, None) is not None:
@@ -292,6 +294,17 @@ class ClipUploadQueue:
         self.login_seen[name] = (logged_in, self._clock())
         if logged_in:
             self.resume_account(name)
+
+    def _resume_on_approval(self, why: str) -> None:
+        """A hand approval: lifts the whole-queue pause, and the account pauses only
+        when no enabled account is left to upload to."""
+        if self._paused:
+            log.info("upload queue resumed (%s)", why)
+            self._paused = None
+        enabled = {a.name for a in self.store.get().tiktok_accounts() if a.enabled}
+        if enabled and enabled <= set(self.account_paused):
+            for name in list(self.account_paused):
+                self.resume_account(name, why)
 
     def _resume(self, why: str) -> None:
         if self._paused:

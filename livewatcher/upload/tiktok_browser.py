@@ -242,8 +242,8 @@ def blocked_scope(error: str) -> str:
     text = error or ""
     if text.startswith(ACCOUNT_BLOCKS):
         return "account"
-    if "was clicked" in text:
-        return "global"
+    if "was clicked" in text or text.startswith("the caption didn't come out"):
+        return "global"  # (the second quotes the editor's text, which may say anything)
     return "account" if _ACCOUNT_WORDS.search(text) else "global"
 
 

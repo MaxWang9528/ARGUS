@@ -285,6 +285,7 @@ def test_blocked_scope_account(error):
     "Post or Save draft was clicked, then Error: boom. Check TikTok before retrying.",
     "the browser can't start: system libraries are missing",
     "uploader error: RuntimeError: boom",
+    "the caption didn't come out as typed (got 'please log in and get verified')",
     "",
 ])
 def test_blocked_scope_global(error):
@@ -386,3 +387,27 @@ def test_account_slot_next_free(store, db, accounts, clock):
     assert acc is None and why.startswith("account a: daily limit")
     acc, why = choose_account(store.get(), db, now, dry_run=True)
     assert acc.name == "a" and why is None
+
+
+async def test_an_approval_does_not_lift_a_single_accounts_pause(make_queue, db, bus, make_clip,
+                                                                 accounts, store):
+    """With review on, every clip is approved by hand: that mustn't unpause the logged-out
+    account, or each new clip would fail on it while the other account sits idle."""
+    accounts("a", "b", cycle_accounts=False)
+    q, up = make_queue(results=[R("blocked", f"{NOT_LOGGED_IN} (account a)")])
+    queue_clips(db, make_clip, 1)
+    await q.step()
+    assert set(q.account_paused) == {"a"}
+    second = make_clip(status=ClipStatus.PENDING_REVIEW)
+    db.save_clip(second)
+    bus.publish(Topic.CLIP, second.model_copy())
+    second.status = ClipStatus.QUEUED  # what ClipService.approve does
+    db.save_clip(second)
+    bus.publish(Topic.CLIP, second.model_copy())
+    await q.step()
+    assert up.accounts == ["a", "b"]
+    assert db.get_clip(second.id).status is ClipStatus.UPLOADED
+    assert set(q.account_paused) == {"a"}
+    store.update({"tiktok": {"cycle_accounts": True}})  # a config change lifts it
+    q._drain_events()
+    assert q.account_paused == {}
