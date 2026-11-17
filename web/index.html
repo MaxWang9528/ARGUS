@@ -425,7 +425,7 @@
                 <template x-if="lay.layout === 'crop'">
                   <div class="slider">
                     <label>Crop position</label><output x-text="fmtNum(lay.crop_x, 0.01)"></output>
-                    <input type="range" min="0" max="1" step="0.01" :value="lay.crop_x" @input="lay.crop_x = +$event.target.value; layoutChanged()">
+                    <input type="range" min="0" max="1" step="0.01" data-testid="crop-x" :value="lay.crop_x" @input="lay.crop_x = +$event.target.value; layoutChanged()">
                     <p class="help">0 keeps the left edge, 1 the right.</p>
                   </div>
                 </template>
@@ -459,7 +459,7 @@
                 </template>
                 <div class="row-actions">
                   <button type="button" class="btn" :disabled="!lay.dirty" @click="loadLayoutForm()">Discard changes</button>
-                  <button type="button" class="btn primary" :disabled="!lay.dirty || busy.layout" @click="saveLayout()"
+                  <button type="button" class="btn primary" data-testid="save-layout" :disabled="!lay.dirty || !!busy.layout" @click="saveLayout()"
                           x-text="busy.layout ? 'Saving…' : 'Save for ' + lay.streamer"></button>
                 </div>
               </div>
@@ -483,7 +483,7 @@
       <div class="card panel">
         <div class="panel-head"><h2>Uploads</h2></div>
         <label class="switch row" :class="{ on: config?.tiktok.dry_run }">
-          <input type="checkbox" role="switch" data-testid="dry-run" :checked="config?.tiktok.dry_run" :disabled="!config"
+          <input type="checkbox" role="switch" data-testid="dry-run" :checked="!!config?.tiktok.dry_run" :disabled="!config"
                  @change="patchConfig({ tiktok: { dry_run: $event.target.checked } }, $event.target.checked ? 'Dry run is on' : 'Dry run is off: uploads will post')">
           <span class="track" aria-hidden="true"></span>
           <span class="switch-label"><b>Dry run</b> <span class="muted">The uploader fills in TikTok's form and stops before Post, then saves a screenshot.</span></span>

@@ -68,7 +68,7 @@ class DemoServer:
         raise RuntimeError("the demo server didn't start")
 
     def stop(self) -> None:
-        if self._loop is not None and self._task is not None:
+        if self._thread.is_alive() and self._loop is not None and self._task is not None:
             self._loop.call_soon_threadsafe(self._task.cancel)
         self._thread.join(timeout=10)
 
@@ -100,7 +100,9 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     shots = os.environ.get("LW_SCREENSHOTS")
     page = browser.new_page(viewport={"width": 1366, "height": 860})
     errors: list[str] = []
-    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    # Alpine reports template errors with console.warn, so those count too.
+    page.on("console", lambda m: errors.append(f"console: {m.text}")
+            if m.type == "error" or (m.type == "warning" and "Alpine" in m.text) else None)
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
 
     page.goto(server.url + "/#streams")
@@ -116,17 +118,37 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
         page.wait_for_timeout(3000)  # a few rate samples on the charts
         page.screenshot(path=f"{shots}/streams.png")
 
+    # Arrow keys open the next streamer large.
+    page.keyboard.press("ArrowRight")
+    page.locator(f"[data-testid=focus][data-name={DEMO_STREAMERS[0]}]").wait_for()
+    page.keyboard.press("ArrowRight")
+    page.locator(f"[data-testid=focus][data-name={DEMO_STREAMERS[1]}]").wait_for()
+    page.keyboard.press("Escape")
+
     # Clip now -> the clip turns up in To review (auto-upload is off by default).
     first = page.locator(f"[data-testid=stream-card][data-name={DEMO_STREAMERS[0]}]")
     first.locator("[data-testid=clip-now]").click()
     page.locator("[data-testid=nav-clips]").click()
-    page.locator("[data-testid=clip-item][data-status=pending_review]").first.wait_for(timeout=20_000)
+    item = page.locator("[data-testid=clip-item][data-status=pending_review]").first
+    item.wait_for(timeout=20_000)
+    assert item.locator("[data-testid=approve]").is_enabled()
+    assert item.locator("[data-testid=reject]").is_enabled()
     if shots:
         page.screenshot(path=f"{shots}/clips.png")
 
     page.locator("[data-testid=nav-debug]").click()
     page.locator("[data-testid=peak-log] tbody tr").first.wait_for(timeout=5_000)
     page.locator(".layout-preview img").wait_for(timeout=10_000)
+    # Layout tool: adjust the crop, see the preview follow, save it to the config.
+    page.locator(".layout-tool .seg button", has_text="Crop").click()
+    page.locator("[data-testid=crop-x]").fill("0.2")
+    page.wait_for_function("() => document.querySelector('.layout-preview img').src.includes('crop_x=0.2')")
+    save = page.locator("[data-testid=save-layout]")
+    assert save.is_enabled()
+    save.click()
+    page.wait_for_function("() => document.querySelector('[data-testid=save-layout]').disabled")
+    saved = server.app.store.get().streamer(DEMO_STREAMERS[0])
+    assert saved.layout == "crop" and saved.crop_x == 0.2
     if shots:
         page.screenshot(path=f"{shots}/debug.png", full_page=True)
 
@@ -153,4 +175,10 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
         page.wait_for_timeout(300)
         page.screenshot(path=f"{shots}/streams-narrow.png")
 
+    # Losing the server shows the banner (the page keeps retrying by itself).
+    page.set_viewport_size({"width": 1366, "height": 860})
+    server.stop()
+    page.locator(".banner", has_text="Lost the connection").wait_for(timeout=10_000)
+    # Failed reconnects log "can't connect" errors in the console; those are expected now.
+    errors[:] = [e for e in errors if "ERR_CONNECTION_REFUSED" not in e and "WebSocket" not in e]
     assert errors == []
