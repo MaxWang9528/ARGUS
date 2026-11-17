@@ -99,7 +99,7 @@
         <div class="focus-head">
           <div>
             <h2 class="streamer-name" x-text="focused.name"></h2>
-            <p class="stream-title" x-text="focused.status.title || (focused.status.live ? 'Live' : 'Offline')"></p>
+            <p class="stream-title"><span class="category" x-show="focused.status.category" x-text="focused.status.category"></span><span x-text="focused.status.title || (focused.status.live ? 'Live' : 'Offline')"></span></p>
           </div>
           <button type="button" class="icon-btn" @click="select(null)" aria-label="Close the large view">&times;</button>
         </div>
@@ -167,7 +167,7 @@
             <h2 class="streamer-name" x-text="s.name"></h2>
             <p class="now-rate"><b x-text="fmtRate(latest[s.name]?.rate)"></b><small>msg/s</small></p>
           </div>
-          <p class="stream-title" x-text="s.enabled ? (s.status.title || (s.status.live ? 'Live' : 'Offline')) : 'Not watched (turned off in Settings)'"></p>
+          <p class="stream-title" :title="s.status.category ? s.status.category + ': ' + s.status.title : s.status.title"><span class="category" data-testid="category" x-show="s.enabled && s.status.category" x-text="s.status.category"></span><span x-text="s.enabled ? (s.status.title || (s.status.live ? 'Live' : 'Offline')) : 'Not watched (turned off in Settings)'"></span></p>
           <div class="chart-wrap">
             <div class="chart" x-init="mountChart($el, 'card:' + s.name, s.name, 300)"></div>
             <div class="chart-empty" x-show="!hasRates(s.name)">No chat-rate data yet</div>
@@ -229,10 +229,15 @@
   <div class="clip-list">
     <template x-for="c in tabClips()" :key="c.id">
       <article class="card clip" data-testid="clip-item" :data-status="c.status" :data-id="c.id">
-        <div class="clip-player">
+        <div class="clip-head">
+          <h2 class="streamer-name" x-text="c.streamer"></h2>
+          <span class="status" :class="'st-' + c.status" x-text="statusLabel(c.status)"></span>
+          <span class="muted small" x-text="fmtAgo(c.created_at)"></span>
+        </div>
+        <div class="clip-player" data-testid="clip-player">
           <template x-if="hasRender(c) && !noPreview[c.id]">
             <video controls preload="metadata" playsinline :src="videoUrl(c)"
-                   @error="noPreview[c.id] = true"></video>
+                   x-init="bindClipVideo($el, c)" @error="noPreview[c.id] = true"></video>
           </template>
           <template x-if="!hasRender(c) || noPreview[c.id]">
             <div class="no-preview">
@@ -242,10 +247,17 @@
           </template>
         </div>
         <div class="clip-main">
-          <div class="clip-head">
-            <h2 class="streamer-name" x-text="c.streamer"></h2>
-            <span class="status" :class="'st-' + c.status" x-text="statusLabel(c.status)"></span>
-            <span class="muted small" x-text="fmtAgo(c.created_at)"></span>
+          <div class="replay">
+            <div class="chart-wrap replay-chart" :class="{ blank: !!replayText(c) }">
+              <div class="chart" data-testid="clip-chart" x-init="mountClipChart($el, c)"></div>
+              <div class="chart-empty" x-show="replayText(c)" x-text="replayText(c)"></div>
+            </div>
+            <div class="legend" aria-hidden="true" x-show="!replayText(c)">
+              <span class="lg rate">Chat rate</span><span class="lg base">Normal</span>
+              <span class="lg thr">Clip threshold</span><span class="lg peak">Peak</span>
+              <span class="lg head">Playhead</span>
+              <span class="muted">Click or drag the chart to seek.</span>
+            </div>
           </div>
           <div class="window">
             <div class="window-bar" :title="windowTitle(c)">
@@ -493,12 +505,13 @@
       <div class="card panel">
         <div class="panel-head"><h2>Health</h2></div>
         <table class="health">
-          <thead><tr><th>Streamer</th><th>Stream</th><th>Recorder</th><th>Buffer</th></tr></thead>
+          <thead><tr><th>Streamer</th><th>Stream</th><th>Category</th><th>Recorder</th><th>Buffer</th></tr></thead>
           <tbody>
             <template x-for="s in streamers" :key="s.name">
               <tr>
                 <td><span class="dot" :class="healthDot(s)"></span><span x-text="s.name"></span></td>
                 <td x-text="s.status.live ? 'Live' : 'Offline'"></td>
+                <td data-testid="health-category" x-text="s.status.category || '–'"></td>
                 <td>
                   <span x-text="recorderLabel(s.status.recorder_state)"></span>
                   <span class="bad-text small" x-show="s.status.last_error" x-text="s.status.last_error"></span>

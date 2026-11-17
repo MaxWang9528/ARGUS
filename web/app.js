@@ -126,14 +126,14 @@ function drawPeaks(u, name) {
   ctx.restore();
 }
 
-function showTip(u) {
+function showTip(u, label = clock) {
   const tip = u.root.closest('.chart-wrap')?.querySelector('.chart-tip');
   if (!tip) return;
   const i = u.cursor.idx;
   if (i == null || u.data[0][i] == null) { tip.hidden = true; return; }
   const [ts, r, b, t] = [u.data[0][i], u.data[1][i], u.data[2][i], u.data[3][i]];
   tip.hidden = false;
-  tip.innerHTML = `<time>${clock(ts)}</time><span class="t-rate">${r.toFixed(1)} msg/s</span>` +
+  tip.innerHTML = `<time>${label(ts)}</time><span class="t-rate">${r.toFixed(1)} msg/s</span>` +
     `<span class="t-base">normal ${b.toFixed(1)}</span><span class="t-thr">clips at ${t.toFixed(1)}</span>`;
   const x = u.valToPos(ts, 'x');
   const w = u.root.clientWidth;
@@ -176,6 +176,210 @@ function pruneDetached() {
   for (const [video, p] of players) {
     if (!video.isConnected) { p.io?.disconnect(); p.hls?.destroy(); players.delete(video); }
   }
+  for (const [id, entry] of clipCharts) {
+    if (!entry.el.isConnected) dropClipChart(id);
+  }
+  for (const [video, io] of clipVideos) {
+    if (!video.isConnected) { io.disconnect(); clipVideos.delete(video); }
+  }
+}
+
+/* ---- clip replay charts -----------------------------------------------------------
+ * Each clip card draws the chat rate over its window and replays it with the video:
+ * x is seconds of video (chat time minus clip.window_start), the rate line is solid
+ * up to the playhead and faint after it. Kept apart from `charts`, which tick() slides
+ * along wall-clock time every second.
+ */
+const CLIP_PAD_S = 5;            // the rates endpoint pads the window this much each side
+const clipCharts = new Map();    // clip id -> { id, el, ws, len, peakId, u, ro, raf, video, w, h, drag }
+const clipRates = new Map();     // clip id -> RateSample[] (successful fetches only)
+const clipVideos = new Map();    // clip <video> -> IntersectionObserver (loads the rates when seen)
+
+function offsetLabel(v) {
+  const s = Math.round(Math.abs(v));
+  return `${v < -0.5 ? '−' : ''}${Math.floor(s / 60)}:${pad(s % 60)}`;
+}
+
+function clipVideo(entry) {
+  if (!entry.video?.isConnected) entry.video = entry.el.closest('.clip')?.querySelector('.clip-player video') || null;
+  return entry.video;
+}
+
+function playheadTime(entry) {
+  const v = clipVideo(entry);
+  return v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
+}
+
+function videoLength(entry) {
+  const v = clipVideo(entry);
+  return v && Number.isFinite(v.duration) && v.duration > 0 ? v.duration : entry.len;
+}
+
+function clipChartOpts(entry, width, height) {
+  const ink2 = cssVar('--ink-2'), grid = cssVar('--grid');
+  const font = `500 11px ${cssVar('--font-ui')}`;
+  const axis = { stroke: ink2, font, grid: { stroke: grid, width: 1 }, ticks: { show: false }, size: 26, gap: 4 };
+  return {
+    width, height,
+    padding: [10, 18, 0, 0],
+    legend: { show: false },
+    cursor: { y: false, points: { size: 7, width: 2, fill: cssVar('--panel') }, drag: { x: false, y: false } },
+    scales: {
+      // Fixed to the padded window, so x is always seconds of video whatever the data covers.
+      x: { time: false, range: () => [-CLIP_PAD_S, entry.len + CLIP_PAD_S] },
+      y: { range: (u, min, max) => [0, Math.max(4, Math.ceil(max * 1.15))] },
+    },
+    axes: [
+      { ...axis, space: 56, values: (u, splits) => splits.map(offsetLabel) },
+      { ...axis, size: 34, space: 24, values: (u, splits) => splits.map(v => (Number.isInteger(v) ? v : v.toFixed(1))) },
+    ],
+    series: [
+      {},
+      // The whole line, faint: the part not played yet. drawReplay() draws the played part solid.
+      { label: 'Chat rate', stroke: cssVar('--trace'), width: 2, alpha: 0.22, points: { show: false } },
+      { label: 'Normal', stroke: cssVar('--base-line'), width: 1.5, points: { show: false } },
+      { label: 'Clip threshold', stroke: cssVar('--peak'), width: 1.25, dash: [5, 4], points: { show: false } },
+    ],
+    hooks: {
+      drawClear: [u => drawClipBackdrop(u, entry)],
+      draw: [u => drawReplay(u, entry)],
+      setCursor: [u => showTip(u, offsetLabel)],
+    },
+  };
+}
+
+// Under the series: shade what isn't in the video, and mark the peak like the stream charts do.
+function drawClipBackdrop(u, entry) {
+  const ctx = u.ctx;
+  const { left, top, width, height } = u.bbox;
+  const dpr = devicePixelRatio || 1;
+  const X = v => u.valToPos(v, 'x', true);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+  ctx.fillStyle = cssVar('--grid');
+  const x0 = X(0), x1 = X(videoLength(entry));
+  ctx.fillRect(left, top, Math.max(x0 - left, 0), height);
+  ctx.fillRect(x1, top, Math.max(left + width - x1, 0), height);
+  const p = entry.peakId ? peaksRef.find(q => q.id === entry.peakId) : null;
+  if (p) {
+    const a = X(p.ts_start - entry.ws), b = X(Math.max(p.ts_end, p.ts_start + 1) - entry.ws);
+    ctx.fillStyle = cssVar('--peak-band');
+    ctx.fillRect(a, top, Math.max(b - a, 2 * dpr), height);
+    const xp = Math.round(X(p.ts_peak - entry.ws));
+    ctx.fillStyle = cssVar('--peak');
+    ctx.fillRect(xp - dpr, top, 2 * dpr, height);
+    const s = 5 * dpr;
+    ctx.beginPath(); ctx.moveTo(xp - s, top); ctx.lineTo(xp + s, top); ctx.lineTo(xp, top + s * 1.4); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Over the series: the played part of the rate line, solid, and the playhead.
+function drawReplay(u, entry) {
+  const ctx = u.ctx;
+  const { left, top, width, height } = u.bbox;
+  const dpr = devicePixelRatio || 1;
+  const [xs, ys] = u.data;
+  const t = playheadTime(entry);
+  const xPlay = Math.min(Math.max(u.valToPos(t, 'x', true), left), left + width);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top, xPlay - left, height); ctx.clip();
+  if (xs.length) {
+    const line = new Path2D();
+    xs.forEach((x, i) => {
+      const px = u.valToPos(x, 'x', true), py = u.valToPos(ys[i], 'y', true);
+      if (i) line.lineTo(px, py); else line.moveTo(px, py);
+    });
+    const area = new Path2D(line);
+    area.lineTo(u.valToPos(xs[xs.length - 1], 'x', true), top + height);
+    area.lineTo(u.valToPos(xs[0], 'x', true), top + height);
+    area.closePath();
+    ctx.fillStyle = cssVar('--trace-fill'); ctx.fill(area);
+    ctx.setLineDash([]);  // uPlot leaves the threshold's dash set
+    ctx.strokeStyle = cssVar('--trace'); ctx.lineWidth = 2 * dpr; ctx.lineJoin = 'round'; ctx.stroke(line);
+  }
+  ctx.restore();
+
+  // The playhead, with a dot where it meets the rate line.
+  ctx.save();
+  ctx.fillStyle = cssVar('--ink');
+  ctx.fillRect(Math.round(xPlay - dpr / 2), top, Math.max(1, Math.round(1.5 * dpr)), height);
+  let j = 0;
+  while (j < xs.length && xs[j] < t) j++;
+  if (j > 0 && j < xs.length) {
+    const f = (t - xs[j - 1]) / (xs[j] - xs[j - 1] || 1);
+    const y = ys[j - 1] + (ys[j] - ys[j - 1]) * f;
+    ctx.beginPath(); ctx.arc(xPlay, u.valToPos(y, 'y', true), 4 * dpr, 0, 2 * Math.PI);
+    ctx.fillStyle = cssVar('--trace'); ctx.fill();
+    ctx.lineWidth = 2 * dpr; ctx.strokeStyle = cssVar('--panel'); ctx.stroke();
+  }
+  ctx.restore();
+  // Where the playhead was drawn, in CSS pixels (the browser test reads these).
+  entry.el.dataset.playhead = t.toFixed(3);
+  entry.el.dataset.playheadX = (xPlay / dpr).toFixed(1);
+}
+
+function clipChartData(entry) {
+  const list = clipRates.get(entry.id) || [];
+  return [list.map(r => r.ts - entry.ws), list.map(r => r.rate), list.map(r => r.baseline), list.map(r => r.threshold)];
+}
+
+function buildClipChart(entry) {
+  const el = entry.el;
+  if (!clipRates.get(entry.id)?.length || !el.clientWidth) return;
+  const w = el.clientWidth, h = Math.max(el.clientHeight, 80);
+  entry.w = w; entry.h = h;
+  entry.u?.destroy();
+  el.innerHTML = '';
+  el.parentElement.querySelector('.chart-tip')?.remove();
+  const tip = document.createElement('div');
+  tip.className = 'chart-tip'; tip.hidden = true;
+  el.parentElement.appendChild(tip);
+  const u = new uPlot(clipChartOpts(entry, w, h), clipChartData(entry), el);
+  entry.u = u;
+  // Click or drag on the chart to seek the video.
+  const seek = e => {
+    const v = clipVideo(entry);
+    if (!v) return;
+    const max = videoLength(entry);
+    v.currentTime = Math.min(Math.max(u.posToVal(e.offsetX, 'x'), 0), Math.max(max - 0.05, 0));
+    u.redraw(false);
+  };
+  u.over.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    entry.drag = true; u.over.setPointerCapture(e.pointerId); seek(e);
+  });
+  u.over.addEventListener('pointermove', e => { if (entry.drag) seek(e); });
+  const end = () => { entry.drag = false; };
+  u.over.addEventListener('pointerup', end);
+  u.over.addEventListener('pointercancel', end);
+  el.addEventListener('mouseleave', () => { tip.hidden = true; });
+  const v = clipVideo(entry);
+  if (v && !v.paused) startReplay(entry.id);
+}
+
+function redrawClip(id) { clipCharts.get(id)?.u?.redraw(false); }
+
+// Follow the video every frame while it plays; the loop ends itself once it stops.
+function startReplay(id) {
+  const entry = clipCharts.get(id);
+  if (!entry || entry.raf) return;
+  const step = () => {
+    entry.raf = 0;
+    if (!entry.el.isConnected) return;
+    entry.u?.redraw(false);
+    const v = clipVideo(entry);
+    if (v && v.isConnected && !v.paused && !v.ended) entry.raf = requestAnimationFrame(step);
+  };
+  entry.raf = requestAnimationFrame(step);
+}
+
+function dropClipChart(id) {
+  const entry = clipCharts.get(id);
+  if (!entry) return;
+  cancelAnimationFrame(entry.raf);
+  entry.ro.disconnect(); entry.u?.destroy();
+  clipCharts.delete(id);
 }
 
 /* ---- the Alpine component -------------------------------------------------------- */
@@ -229,6 +433,7 @@ document.addEventListener('alpine:init', () => {
     drafts: {},
     layoutPick: {},
     noPreview: {},
+    clipRateState: {}, // clip id -> loading | ok | empty | error
     clipTab: 'review',
     toasts: [],
     confirmRemove: null,
@@ -614,8 +819,69 @@ document.addEventListener('alpine:init', () => {
         if (e.u) e.u.setSize({ width: e.el.clientWidth, height: e.el.clientHeight }); else buildChart(e);
         if (e.u) redraw(e);
       }
+      for (const e of clipCharts.values()) {
+        if (e.el.clientWidth && e.u) e.u.setSize({ width: e.el.clientWidth, height: e.el.clientHeight });
+        else buildClipChart(e);
+      }
     },
-    rebuildCharts() { for (const e of charts.values()) if (e.el.clientWidth) buildChart(e); },
+    rebuildCharts() {
+      for (const e of charts.values()) if (e.el.clientWidth) buildChart(e);
+      for (const e of clipCharts.values()) buildClipChart(e);
+    },
+
+    /* ---- clip replay charts -------------------------------------------------- */
+    mountClipChart(el, c) {
+      dropClipChart(c.id);
+      const entry = {
+        id: c.id, el, ws: c.window_start, len: Math.max(c.window_end - c.window_start, 1), peakId: c.peak_id,
+        u: null, ro: null, raf: 0, video: null, w: 0, h: 0, drag: false,
+      };
+      entry.ro = new ResizeObserver(() => {
+        const w = el.clientWidth, h = el.clientHeight;
+        if (!w || !h || (w === entry.w && h === entry.h)) return;
+        if (entry.u) { entry.w = w; entry.h = h; entry.u.setSize({ width: w, height: h }); } else buildClipChart(entry);
+      });
+      entry.ro.observe(el);
+      clipCharts.set(c.id, entry);
+      if (clipRates.has(c.id)) this.$nextTick(() => buildClipChart(entry));
+    },
+
+    // Wires a clip's <video> to its chart, and fetches the chart's rates once the player is seen.
+    bindClipVideo(video, c) {
+      const id = c.id;
+      video.addEventListener('play', () => {
+        for (const other of document.querySelectorAll('.clip-player video')) if (other !== video && !other.paused) other.pause();
+        startReplay(id);
+      });
+      for (const ev of ['pause', 'ended', 'seeking', 'seeked', 'timeupdate', 'loadedmetadata', 'durationchange']) {
+        video.addEventListener(ev, () => redrawClip(id));
+      }
+      const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) this.loadClipRates(id); }, { threshold: 0.05 });
+      io.observe(video);
+      clipVideos.set(video, io);
+    },
+
+    async loadClipRates(id) {
+      if (clipRates.has(id) || this.clipRateState[id] === 'loading') return;
+      this.clipRateState[id] = 'loading';
+      try {
+        const list = await api('GET', `/clips/${encodeURIComponent(id)}/rates`);
+        clipRates.set(id, Array.isArray(list) ? list : []);
+        this.clipRateState[id] = clipRates.get(id).length ? 'ok' : 'empty';
+        this.$nextTick(() => { const e = clipCharts.get(id); if (e) buildClipChart(e); });
+      } catch {
+        this.clipRateState[id] = 'error';  // not cached: the next time the player is seen tries again
+      }
+    },
+
+    replayText(c) {
+      if (!this.hasRender(c) || this.noPreview[c.id]) return 'No chat data for this clip';
+      const st = this.clipRateState[c.id];
+      if (st === 'empty') return 'No chat data for this clip';
+      if (st === 'error') return "Couldn't load the chat data";
+      if (st === 'ok') return '';
+      return 'Loading chat data…';
+    },
 
     /* ---- clips ------------------------------------------------------------ */
     tabStatuses: {
@@ -929,7 +1195,7 @@ document.addEventListener('alpine:init', () => {
       const tab = Object.entries(this.tabStatuses).find(([, st]) => st.includes(c.status));
       this.clipTab = tab ? tab[0] : 'review';
       this.view = 'clips';
-      this.$nextTick(() => document.querySelector(`.clip[data-id="${CSS.escape(c.id)}"]`)?.scrollIntoView({ block: 'center' }));
+      this.$nextTick(() => document.querySelector(`.clip[data-id="${CSS.escape(c.id)}"]`)?.scrollIntoView({ block: 'start' }));
     },
     setSyncOffset(v) {
       if (!this.config || Number.isNaN(v)) return;

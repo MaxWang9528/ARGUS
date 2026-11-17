@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
+import shutil
 import socket
+import subprocess
 import threading
 import time
 import urllib.request
@@ -116,6 +119,8 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     assert cards.count() == 3
     for name in DEMO_STREAMERS:
         assert page.locator(f"[data-testid=stream-card][data-name={name}]").count() == 1
+    # The Twitch category sits next to the title.
+    cards.first.locator("[data-testid=category]", has_text="Grand Theft Auto VI").wait_for(timeout=10_000)
     # The fake recorder reports live and writes snapshots; the cards show them.
     page.locator("[data-testid=stream-card] img").first.wait_for(timeout=10_000)
     page.locator("[data-testid=stream-card] .uplot").first.wait_for(timeout=10_000)
@@ -138,11 +143,22 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     item.wait_for(timeout=20_000)
     assert item.locator("[data-testid=approve]").is_enabled()
     assert item.locator("[data-testid=reject]").is_enabled()
+
+    # The player is big and 9:16.
+    box = item.locator("[data-testid=clip-player]").bounding_box()
+    assert box is not None and box["height"] >= 0.6 * 860
+    assert abs(box["width"] / box["height"] - 9 / 16) < 0.02
+    chart = item.locator("[data-testid=clip-chart]")
+    if shutil.which("ffmpeg"):
+        _check_replay(page, item, chart)
+    else:  # the demo writes placeholder files: no preview, so no chart either
+        item.locator(".replay-chart .chart-empty", has_text="No chat data for this clip").wait_for(timeout=10_000)
     if shots:
-        page.screenshot(path=f"{shots}/clips.png")
+        _clip_screenshots(page, server, shots)
 
     page.locator("[data-testid=nav-debug]").click()
     page.locator("[data-testid=peak-log] tbody tr").first.wait_for(timeout=5_000)
+    assert "Grand Theft Auto VI" in page.locator("[data-testid=health-category]").first.inner_text()
     page.locator(".layout-preview img").wait_for(timeout=10_000)
     # Layout tool: adjust the crop, see the preview follow, save it to the config.
     page.locator(".layout-tool .seg button", has_text="Crop").click()
@@ -188,3 +204,65 @@ def test_dashboard_smoke(server: DemoServer, browser) -> None:
     server.stop()
     page.locator(".banner", has_text="Lost the connection").wait_for(timeout=10_000)
     assert [e for e in errors if "pageerror" in e or "Alpine" in e] == []
+
+
+def _check_replay(page, item, chart) -> None:
+    """The chart replays with the video: the playhead follows playback and seeking."""
+    chart.locator(".uplot").wait_for(timeout=10_000)
+    video = item.locator("video")
+    video.evaluate("v => v.readyState >= 1 || new Promise(r => v.addEventListener('loadedmetadata', r, { once: true }))")
+    el = chart.element_handle()
+    x0 = float(chart.get_attribute("data-playhead-x"))
+    video.evaluate("v => { v.muted = true; return v.play(); }")
+    # requestAnimationFrame moves the drawn playhead while the video plays.
+    page.wait_for_function("el => parseFloat(el.dataset.playhead) > 0.8", arg=el, timeout=10_000)
+    x1 = float(chart.get_attribute("data-playhead-x"))
+    assert x1 > x0
+    page.wait_for_function(f"el => parseFloat(el.dataset.playheadX) > {x1 + 2}", arg=el, timeout=10_000)
+    # Paused, it stays put.
+    video.evaluate("v => v.pause()")
+    page.wait_for_timeout(100)
+    held = chart.get_attribute("data-playhead-x")
+    page.wait_for_timeout(400)
+    assert chart.get_attribute("data-playhead-x") == held
+    # Clicking the chart seeks the video, and the playhead lands where the click was.
+    w = chart.bounding_box()["width"]
+    target = round(w * 0.45)
+    chart.locator(".u-over").click(position={"x": target - _over_left(chart), "y": 40})
+    page.wait_for_function(f"el => Math.abs(parseFloat(el.dataset.playheadX) - {target}) < 3", arg=el, timeout=5_000)
+    t = video.evaluate("v => v.currentTime")
+    assert abs(t - float(chart.get_attribute("data-playhead"))) < 0.05 and t > 0
+
+
+def _over_left(chart) -> float:
+    return chart.locator(".u-over").evaluate("o => o.offsetLeft")
+
+
+def _clip_screenshots(page, server: DemoServer, shots: str) -> None:
+    """Swap the demo's 16:9 test clip for a real 1080x1920 one, then shoot the Clips tab."""
+    with urllib.request.urlopen(server.url + "/api/clips") as r:
+        clip = next(c for c in json.load(r) if c["status"] == "pending_review")
+    dur = max(clip["window_end"] - clip["window_start"], 1)
+    out = Path(clip["renders"][clip["active_layout"]])
+    tmp = out.with_suffix(".tall.mp4")
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", f"testsrc=size=1080x1920:rate=30:duration={dur:.2f}",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(tmp)], check=True)
+    tmp.replace(out)
+    page.reload()
+    item = page.locator(f"[data-testid=clip-item][data-id='{clip['id']}']")
+    chart = item.locator("[data-testid=clip-chart] .uplot")
+    chart.wait_for(timeout=10_000)
+    video = item.locator("video")
+    video.evaluate("v => v.readyState >= 1 || new Promise(r => v.addEventListener('loadedmetadata', r, { once: true }))")
+    video.evaluate("v => new Promise(r => { v.addEventListener('seeked', r, { once: true }); v.currentTime = v.duration * 0.55; })")
+    page.wait_for_timeout(300)
+    page.screenshot(path=f"{shots}/clips.png")
+    page.emulate_media(color_scheme="dark")
+    page.wait_for_timeout(400)
+    page.screenshot(path=f"{shots}/clips-dark.png")
+    page.set_viewport_size({"width": 390, "height": 800})
+    page.wait_for_timeout(400)
+    page.screenshot(path=f"{shots}/clips-narrow.png", full_page=True)
+    page.set_viewport_size({"width": 1366, "height": 860})
+    page.emulate_media(color_scheme="light")
