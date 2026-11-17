@@ -15,6 +15,10 @@ Three methods, tried in this order:
   in a thread, a few channels at a time. No viewer count.
 
 If one method fails, the next one is used for that round.
+
+``hints`` (set by the app when stream discovery runs): ``hints(name) -> LiveInfo | None``.
+A channel with a fresh hint (from discovery's own Helix ``/streams`` answer) isn't
+checked again.
 """
 
 from __future__ import annotations
@@ -98,16 +102,27 @@ class LiveChecker:
         self._token: str = ""
         self._token_expires = 0.0
         self._token_for: tuple[str, str] = ("", "")
+        self.hints: Callable[[str], LiveInfo | None] | None = None
 
     # ---- public --------------------------------------------------------------
     async def check(self, names: Iterable[str]) -> dict[str, LiveInfo]:
         names = sorted({n.lower() for n in names})
+        known: dict[str, LiveInfo] = {}
+        if self.hints is not None:
+            for n in names:
+                info = self.hints(n)
+                if info is not None:
+                    known[n] = info
+            names = [n for n in names if n not in known]
         if not names:
-            return {}
-        tw = self.store.get().twitch
-        if tw.client_id and tw.client_secret:
+            return known
+        return {**await self._check(names), **known}
+
+    async def _check(self, names: list[str]) -> dict[str, LiveInfo]:
+        client_id, secret = self.store.get().twitch_credentials()
+        if client_id and secret:
             try:
-                return await self._check_helix(names, tw.client_id, tw.client_secret)
+                return await self._check_helix(names, client_id, secret)
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 log.warning("Helix live check failed, using GQL: %s", exc)
         try:

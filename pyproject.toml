@@ -15,6 +15,12 @@ dependencies = [
     "httpx",
 ]
 
+[project.optional-dependencies]
+# Speech check (argus/detect/speech.py): transcribes auto clips on the CPU.
+speech = ["faster-whisper>=1.1"]
+# Moment judge (argus/detect/judge.py): asks Claude about each auto clip. Off by default.
+judge = ["anthropic"]
+
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "ruff"]
 
@@ -27,4 +33,4 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.ruff]
 line-length = 110
 target-version = "py313"
-extend-exclude = ["web/vendor"]
+extend-exclude = ["web/vendor", "experiments"]  # throwaway research scripts

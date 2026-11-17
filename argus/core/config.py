@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import tomlkit
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from .events import EventBus, Topic
 
@@ -75,16 +75,16 @@ class Detection(_Model):
     smooth_s: float = Field(5, gt=0)
     baseline_window_s: float = Field(300, gt=0)  # "normal chat" = median rate over this long
     recent_baseline_s: float = Field(90, ge=0)   # a higher median over this long lifts it (0 = off)
-    multiplier: float = 3.0
+    multiplier: float = 2.5
     z_threshold: float = 4.0
-    min_msgs_per_sec: float = 2.0
-    min_unique_chatters: int = 5
+    min_msgs_per_sec: float = 0.6
+    min_unique_chatters: int = 3
     end_ratio: float = 1.5
-    cooldown_s: float = 90
+    cooldown_s: float = 45
     # A peak counts only if chat stays raised at least this long (from its rise to its
     # fall); shorter ones are one-off spikes and aren't clipped. Smoothing stretches a lone
     # burst to about smooth_s + 1 s.
-    min_sustain_s: float = Field(10, ge=0)
+    min_sustain_s: float = Field(6, ge=0)
     preroll_s: float = 8          # kept before chat starts rising (it reacts a few s late)
     postroll_s: float = 3         # kept after chat falls back...
     max_after_peak_s: float = 12  # ...but never more than this after the busiest moment
@@ -158,6 +158,57 @@ class TikTok(_Model):
     rank_half_life_h: float = Field(1.5, ge=0)
 
 
+class Speech(_Model):
+    """Speech check: transcribe each auto clip's raw cut and score how excited the streamer
+    sounds (exclamations, swearing). A soft factor on the clip's rank, optionally a gate.
+    Needs the optional ``faster-whisper`` package; without it the check is skipped."""
+
+    enabled: bool = True
+    model: str = "small.en"      # faster-whisper model name (or a local model folder)
+    threads: int = Field(2, ge=1)  # CPU threads per transcription
+    max_concurrent: int = Field(1, ge=1, le=2)  # transcriptions at a time
+    download_root: str = ""      # "" = the Hugging Face cache
+    # Drop auto clips scoring below this (0 = off). Roughly one exclamation or swear in the
+    # clip scores 1-1.5; the threshold was fitted on one small dataset, so it starts off.
+    gate_threshold: float = Field(0.0, ge=0)
+    # rank *= 1 + rank_weight * (min(score, 3) - 0.5), kept within 0.5-2 (0 = no effect)
+    rank_weight: float = Field(0.25, ge=0)
+
+
+class Judge(_Model):
+    """Moment judge: send each auto clip's transcript and chat to Claude, which says
+    whether it is a moment, scores it 0-10 and drafts a caption (argus/detect/judge.py).
+    Needs the optional ``anthropic`` package and ANTHROPIC_API_KEY or ``ant auth login``."""
+
+    enabled: bool = False
+    model: str = "claude-opus-5-5"
+    effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    # rank *= 1 + rank_weight * (score / 10 - 0.5), kept within 0.25-2 (0 = no effect)
+    rank_weight: float = Field(1.0, ge=0)
+    gate_score: float = Field(0.0, ge=0, le=10)  # drop auto clips scoring below this (0 = off)
+    use_caption: bool = True  # caption = the judge's caption + the #tags of the usual caption
+    max_concurrent: int = Field(2, ge=1, le=8)  # requests at a time
+
+
+class Discovery(_Model):
+    """Stream discovery: watch the top live Twitch streams (Helix ``GET /streams``, by
+    viewers) on top of, or instead of, ``[[streamers]]``. Needs Twitch app keys
+    (``twitch.client_id``/``client_secret`` or TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET)."""
+
+    enabled: bool = False
+    categories: list[str] = Field(default_factory=list)  # exact Twitch names; empty = all
+    languages: list[str] = Field(default_factory=lambda: ["en"])  # empty = any language
+    top_n: int = Field(12, ge=1, le=500)
+    min_viewers: int = Field(0, ge=0)
+    poll_s: float = Field(90, ge=30, le=3600)
+    exclude: list[str] = Field(default_factory=list)  # channel names never to add
+    # A discovered channel stays watched this long after it leaves the top N or goes
+    # offline, so a clip being made isn't cut off.
+    keep_minutes: float = Field(10, ge=0)
+    # "merge": [[streamers]] plus the discovered ones. "only": just the discovered ones.
+    mode: Literal["merge", "only"] = "merge"
+
+
 class Region(_Model):
     """A rectangle in fractions (0-1) of the source frame."""
 
@@ -200,7 +251,13 @@ class Config(_Model):
     capture: Capture = Field(default_factory=Capture)
     render: Render = Field(default_factory=Render)
     tiktok: TikTok = Field(default_factory=TikTok)
+    speech: Speech = Field(default_factory=Speech)
+    judge: Judge = Field(default_factory=Judge)
+    discovery: Discovery = Field(default_factory=Discovery)
     streamers: list[Streamer] = Field(default_factory=list)
+    # Runtime only (never saved): the channels stream discovery found, lower case.
+    # None = discovery isn't running, so only [[streamers]] are watched.
+    _discovered: tuple[str, ...] | None = PrivateAttr(default=None)
 
     # ---- helpers -------------------------------------------------------------
     @property
@@ -234,12 +291,43 @@ class Config(_Model):
             out.append(a.model_copy(update={"browser_profile_dir": str(resolve_path(d))}))
         return out
 
+    def twitch_credentials(self) -> tuple[str, str]:
+        """(client_id, client_secret): the TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET
+        environment variables win over ``[twitch]``. ("", "") parts when unset."""
+        cid = os.environ.get("TWITCH_CLIENT_ID", "").strip() or self.twitch.client_id.strip()
+        secret = os.environ.get("TWITCH_CLIENT_SECRET", "").strip() or self.twitch.client_secret.strip()
+        return cid, secret
+
+    def discovered_names(self) -> list[str]:
+        """The channels stream discovery is watching now (lower case, best first)."""
+        return list(self._discovered or ())
+
+    def is_discovered(self, name: str) -> bool:
+        return name.lower() in (self._discovered or ())
+
     def enabled_streamers(self) -> list[Streamer]:
-        return [s for s in self.streamers if s.enabled]
+        """Who to watch: enabled [[streamers]] plus discovered channels
+        (``discovery.mode = "only"``: just the discovered ones). A discovered channel that
+        is also configured uses its [[streamers]] entry; one turned off there is skipped."""
+        configured = [s for s in self.streamers if s.enabled]
+        if self._discovered is None:
+            return configured
+        out = configured if self.discovery.mode == "merge" else []
+        have = {s.name.lower() for s in out}
+        off = {s.name.lower() for s in self.streamers if not s.enabled}
+        for name in self._discovered:
+            if name not in have and name not in off:
+                out.append(self.streamer(name) or Streamer(name=name))
+                have.add(name)
+        return out
 
     def streamer(self, name: str) -> Streamer | None:
+        """The [[streamers]] entry, else a default entry for a discovered channel."""
         low = name.lower()
-        return next((s for s in self.streamers if s.name.lower() == low), None)
+        s = next((s for s in self.streamers if s.name.lower() == low), None)
+        if s is None and low in (self._discovered or ()):
+            s = Streamer(name=low)
+        return s
 
     def detection_for(self, name: str) -> Detection:
         """Global detection settings with this streamer's overrides merged in."""
@@ -296,6 +384,21 @@ class ConfigStore:
     def get(self) -> Config:
         return self._config
 
+    def set_discovered(self, names: list[str] | None) -> bool:
+        """Runtime only: the channels stream discovery watches (None = discovery off).
+        Never written to the file. Publishes ``streamers_changed`` when the set changes."""
+        new = None if names is None else tuple(dict.fromkeys(n.lower() for n in names))
+        old = self._config._discovered
+        if new == old:
+            return False
+        cfg = self._config.model_copy()
+        cfg._discovered = new
+        self._config = cfg
+        changed = set(new or ()) != set(old or ()) or (new is None) != (old is None)
+        if self.bus and changed:  # a new order alone needs no rejoin
+            self.bus.publish(Topic.STREAMERS_CHANGED, {"discovered": list(new or ())})
+        return True
+
     def update(self, patch: dict[str, Any]) -> Config:
         """Validate, apply, save and announce a change. Raises ValidationError if bad."""
         merged = self._config.model_dump(exclude_none=True)
@@ -305,6 +408,7 @@ class ConfigStore:
             else:
                 merged[key] = value
         new = Config.model_validate(merged)
+        new._discovered = self._config._discovered  # runtime only, kept across edits
         self._config = new
         if self.path:
             _deep_merge(self._doc, patch)

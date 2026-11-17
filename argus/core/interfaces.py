@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from .config import LayoutConfig, TikTokAccount
-from .models import Clip, StreamStatus, UploadResult
+from .models import Clip, StreamStatus, Transcript, UploadResult
 
 
 class WindowUnavailable(Exception):
@@ -78,6 +78,17 @@ class Renderer(Protocol):
 
     async def preview(self, snapshot_path: Path, layout: LayoutConfig) -> bytes:
         """JPEG bytes: the snapshot with the layout's regions drawn on top."""
+        ...
+
+
+@runtime_checkable
+class Transcriber(Protocol):
+    """Speech to text for the speech check (``argus.detect.speech``)."""
+
+    async def transcribe(self, path: Path, start: float = 0.0, duration: float | None = None) -> Transcript:
+        """Transcribe ``duration`` s of ``path`` (any file ffmpeg reads: a raw cut, or a
+        buffer's ``.m3u8``) from ``start`` s in. Word times are from ``start``. Runs off
+        the event loop. Raises on failure (missing package, bad file, ...)."""
         ...
 
 

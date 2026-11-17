@@ -15,10 +15,19 @@ The signal:
 - the baseline is the rolling median of that rate over ``baseline_window_s``,
   leaving out bins inside a peak; the spread is the MAD scaled to a standard
   deviation, never below ``MIN_SPREAD`` (integer counts make the MAD exactly 0
-  in quiet chats);
-- ``z = (rate - baseline) / spread``;
+  in quiet chats) nor below the counting noise of a ``smooth_s`` mean,
+  sqrt(baseline / smooth_s), so one threshold fits slow and busy chats;
+- ``z = (rate - baseline) / spread``; a peak also needs the rate to have risen
+  ``z_threshold`` spreads within the last ``JUMP_S`` seconds, from a level within
+  ``JUMP_FROM_SPREADS`` of the baseline: a sharp rise, not chat drifting up past the
+  threshold. A peak whose busiest second comes more than ``MAX_CLIMB_S`` after it
+  started is dropped too: chat that keeps building is climbing to a new level, while a
+  reaction peaks within seconds;
 - if the median of the last ``recent_baseline_s`` is higher, it is the baseline
-  instead (a step to a new chat level is not a peak), and after
+  instead (a step to a new chat level is not a peak); so is the median of the
+  *pre-window* (``PRE_FAR_S`` to ``PRE_NEAR_S`` ago) when higher, so a peak has to
+  stand out against what chat was doing just before it, not only against the slow
+  median. After
   ``DORMANT_AFTER_S`` of total silence the 60 s warm-up starts again;
 - a run of empty bins that the baseline makes implausible (``GAP_MISSING_MSGS``
   expected messages missing) is a chat *gap*: the connection or the app stalled,
@@ -55,6 +64,11 @@ log = logging.getLogger("argus.detect")
 MAD_TO_SD = 1.4826        # MAD of a normal distribution * this = its standard deviation
 MIN_SPREAD = 0.25         # msgs/s; floor for the spread so silent chat can't give huge z
 MIN_HISTORY_S = 60.0      # no peak can start before this much history
+PRE_FAR_S = 45.0          # the pre-window: chat's level just before a rise is the median
+PRE_NEAR_S = 15.0         # ...of the rate from PRE_FAR_S to PRE_NEAR_S ago
+JUMP_S = 10.0             # a peak's rise must happen within this long (no slow climbs)
+JUMP_FROM_SPREADS = 1.5   # ...and start from within this many spreads of the baseline
+MAX_CLIMB_S = 20.0        # a peak whose busiest second is this long after it began is a climb
 MAX_RISE_LOOKBACK_S = 20.0  # ts_start is at most this far before the bin that triggered
 MAX_PER_USER_PER_S = 2.0  # one user counts for at most this many msgs/s (stops a lone spammer)
 DORMANT_AFTER_S = 120.0   # this long with no chat (offline, disconnected) restarts the warm-up
@@ -114,6 +128,7 @@ class _Active:
     peak_rate: float
     baseline: float
     spread: float
+    ts_trigger: float = 0.0  # the bin that started it
     chatters: int = 0
     msgs: int = 0
     reactions: int = 0
@@ -140,6 +155,7 @@ class PeakTracker:
         self._recent: deque[tuple[float, _Bin]] = deque()        # closed bins in the smoothing window
         self._history: deque[tuple[float, float]] = deque()      # (ts, rate) for the baseline
         self._rise: deque[tuple[float, bool]] = deque()          # (bin start, above baseline + spread)
+        self._jump: deque[tuple[float, float]] = deque()         # (end, rate) over the last JUMP_S
         self._bins_closed = 0
         self._silent_since: float | None = None
         self._active: _Active | None = None
@@ -221,10 +237,13 @@ class PeakTracker:
         base = statistics.median(rates)
         return base, statistics.median(abs(r - base) for r in rates)
 
-    def _baseline(self, end: float, bin_s: float, recent_s: float) -> tuple[float, float]:
+    def _baseline(self, end: float, bin_s: float, recent_s: float,
+                  smooth_s: float) -> tuple[float, float]:
         """Median and spread of the history. When the median of the last
         ``recent_s`` is higher (chat stepped up to a new level, e.g. the
-        stream went live), that one is used, so a level change isn't a peak."""
+        stream went live), that one is used, so a level change isn't a peak.
+        Likewise the pre-window median, so a peak must stand out against the
+        last minute. The spread is at least the counting noise of the rate."""
         if not self._history:
             return 0.0, MIN_SPREAD
         base, mad = self._median_mad([r for _, r in self._history])
@@ -233,7 +252,11 @@ class PeakTracker:
             r_base, r_mad = self._median_mad(recent)
             if r_base > base:
                 base, mad = r_base, r_mad
-        return base, max(mad * MAD_TO_SD, MIN_SPREAD)
+        pre = [r for ts, r in self._history if end - PRE_FAR_S < ts <= end - PRE_NEAR_S]
+        if pre and len(pre) * bin_s >= (PRE_FAR_S - PRE_NEAR_S) / 2:
+            base = max(base, statistics.median(pre))
+        noise = math.sqrt(max(base, 0.05) / smooth_s)
+        return base, max(mad * MAD_TO_SD, MIN_SPREAD, noise)
 
     def _close(self, idx: int, bin_s: float, det: Detection) -> tuple[RateSample, PeakEvent | None]:
         b = self._open.pop(idx, None) or _Bin()
@@ -255,12 +278,18 @@ class PeakTracker:
         if self._active is not None:
             base, spread = self._active.baseline, self._active.spread
         else:
-            base, spread = self._baseline(end, bin_s, det.recent_baseline_s)
+            base, spread = self._baseline(end, bin_s, det.recent_baseline_s, smooth)
         z = (rate - base) / spread
         threshold = max(base * det.multiplier, base + det.z_threshold * spread, det.min_msgs_per_sec)
 
         self._track_gap(not b.users, end, base, bin_s, det)
         held = self._in_gap or end < self._hold_until
+
+        self._jump.append((end, rate))
+        while self._jump and self._jump[0][0] <= end - JUMP_S + 1e-9:
+            self._jump.popleft()
+        low = min(r for _, r in self._jump)
+        jumped = rate - low > det.z_threshold * spread and low <= base + JUMP_FROM_SPREADS * spread
 
         self._rise.append((start, rate > base + spread))
         while self._rise and self._rise[0][0] < start - MAX_RISE_LOOKBACK_S:
@@ -270,10 +299,11 @@ class PeakTracker:
         if self._active is None:
             cooled = self._last_end is None or end - self._last_end >= det.cooldown_s
             warm = self._bins_closed * bin_s >= MIN_HISTORY_S
-            if (warm and cooled and not held and rate > base * det.multiplier and z > det.z_threshold
+            if (warm and cooled and not held and jumped and rate > base * det.multiplier
+                    and z > det.z_threshold
                     and rate > det.min_msgs_per_sec and users >= det.min_unique_chatters):
                 self._active = _Active(ts_start=self._rise_start(start), ts_peak=end, peak_rate=rate,
-                                       baseline=base, spread=spread)
+                                       baseline=base, spread=spread, ts_trigger=end)
                 # the rise so far is part of the moment's chat too
                 for _, rb in self._recent:
                     self._active.add(rb, users)
@@ -293,7 +323,13 @@ class PeakTracker:
                 # back. Measured on real chat, lone bursts come out at 6-7 s and reactions
                 # at 10 s and up.
                 sustained = ts_end - a.ts_start
-                if sustained >= det.min_sustain_s - 1e-9:
+                climb = a.ts_peak - a.ts_trigger
+                if climb > MAX_CLIMB_S:
+                    # Chat kept rising long after it crossed the line: a slow climb to a
+                    # new level, not a reaction (those peak within seconds). No cooldown.
+                    log.info("climb ignored: busiest %.0f s after it started (score %.1f)",
+                             climb, score, extra={"streamer": self.streamer})
+                elif sustained >= det.min_sustain_s - 1e-9:
                     n = max(1, a.msgs)
                     reaction, answer = a.reactions / n, a.answers / n
                     rank = score * math.sqrt(a.chatters) * text_factor(reaction, answer)

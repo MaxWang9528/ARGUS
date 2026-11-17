@@ -75,6 +75,9 @@
     </div>
   </div>
 
+  <p class="disc-note small" data-testid="discovery-note" x-show="discovery?.enabled && (!discovery?.has_credentials || discovery?.error)"
+     x-text="discoverySummary()"></p>
+
   <template x-if="streamers.length === 0 && loaded">
     <div class="empty">
       <p>No streamers yet.</p>
@@ -108,7 +111,7 @@
       <div class="focus-side">
         <div class="focus-head">
           <div>
-            <h2 class="streamer-name" x-text="focused.name"></h2>
+            <h2 class="streamer-name"><span x-text="focused.name"></span> <span class="disc-badge" data-testid="discovered-badge" x-show="focused.discovered" :title="discoveredTitle(focused)">discovered</span></h2>
             <p class="stream-title"><span class="category" x-show="focused.status.category" x-text="focused.status.category"></span><span x-text="focused.status.title || (focused.status.live ? 'Live' : 'Offline')"></span></p>
           </div>
           <button type="button" class="icon-btn" @click="select(null)" aria-label="Close the large view">&times;</button>
@@ -181,7 +184,7 @@
         </div>
         <div class="card-body">
           <div class="card-head">
-            <h2 class="streamer-name" x-text="s.name"></h2>
+            <h2 class="streamer-name"><span x-text="s.name"></span> <span class="disc-badge" data-testid="discovered-badge" x-show="s.discovered" :title="discoveredTitle(s)">discovered</span></h2>
             <p class="now-rate"><b x-text="fmtRate(latest[s.name]?.rate)"></b><small>msg/s</small></p>
           </div>
           <p class="stream-title" :title="s.status.category ? s.status.category + ': ' + s.status.title : s.status.title"><span class="category" data-testid="category" x-show="s.enabled && s.status.category" x-text="s.status.category"></span><span x-text="s.enabled ? (s.status.title || (s.status.live ? 'Live' : 'Offline')) : 'Not watched (turned off in Settings)'"></span></p>
@@ -218,6 +221,7 @@
                 @click="select(s.name)" @keydown.enter.self="select(s.name)">
               <span class="dot warn" aria-hidden="true"></span>
               <span class="row-name" x-text="s.name"></span>
+              <span class="disc-badge" data-testid="discovered-badge" x-show="s.discovered" :title="discoveredTitle(s)">discovered</span>
               <span class="category" x-show="s.status.category" x-text="s.status.category"></span>
               <span class="row-title muted" x-text="s.status.title"></span>
               <span class="row-viewers" data-testid="viewers" x-text="viewersText(s)"></span>
@@ -238,6 +242,7 @@
                 @click="select(s.name)" @keydown.enter.self="select(s.name)">
               <span class="dot" :class="healthDot(s)" aria-hidden="true"></span>
               <span class="row-name" x-text="s.name"></span>
+              <span class="disc-badge" data-testid="discovered-badge" x-show="s.discovered" :title="discoveredTitle(s)">discovered</span>
               <span class="category" x-show="s.status.category" x-text="s.status.category"></span>
               <span class="row-title muted" x-text="offlineNote(s)"></span>
             </li>
@@ -379,6 +384,25 @@
               </template>
             </p>
           </div>
+
+          <template x-if="c.speech_score !== null && c.speech_score !== undefined">
+            <p class="small" data-testid="clip-speech"
+               title="Speech check: how excited the streamer sounds (exclamations, swearing). It scales the clip's rank.">
+              <span class="field-label">Speech <b x-text="c.speech_score.toFixed(1)"></b></span>
+              <span class="muted" x-show="c.speech_hits && c.speech_hits.length" x-text="'(' + (c.speech_hits || []).join(', ') + ')'"></span>
+              <br><q x-text="c.transcript || '(nothing heard)'"></q>
+            </p>
+          </template>
+
+          <template x-if="c.judge_score !== null && c.judge_score !== undefined">
+            <p class="small" data-testid="clip-judge"
+               title="Moment judge: Claude read the transcript and chat. Its score (0-10) scales the clip's rank.">
+              <span class="field-label">Judge <b x-text="c.judge_score.toFixed(0) + '/10'"></b></span>
+              <span class="muted" x-text="c.judge_moment ? '(a moment)' : '(not a moment)'"></span>
+              <span x-show="c.judge_reason" x-text="c.judge_reason"></span>
+              <template x-if="c.judge_caption"><span><br>Caption idea: <q x-text="c.judge_caption"></q></span></template>
+            </p>
+          </template>
 
           <template x-if="c.error">
             <div class="callout bad">
@@ -906,6 +930,61 @@
         <button type="submit" class="btn" :disabled="!newStreamer">Add streamer</button>
       </form>
       <p class="small bad-text" x-show="addError" x-text="addError"></p>
+    </div>
+
+    <div class="card panel" data-testid="discovery-panel">
+      <div class="panel-head"><h2>Discovery</h2></div>
+      <p class="small" :class="discovery && !discovery.has_credentials ? 'bad-text' : 'muted'" data-testid="discovery-status"
+         x-text="discoverySummary() || 'Watch the top live Twitch streams by viewers, so you don\'t have to keep adding streamers.'"></p>
+      <form class="disc-form" @submit.prevent="saveDiscovery()">
+        <div class="wide">
+          <label class="switch" :class="{ on: disc.enabled }">
+            <input type="checkbox" role="switch" data-testid="discovery-enabled" x-model="disc.enabled" @change="disc.dirty = true">
+            <span class="track" aria-hidden="true"></span>
+            <span class="switch-label">Find and watch the top live streams</span>
+          </label>
+        </div>
+        <label class="field">
+          <span class="field-label">How many</span>
+          <input type="number" min="1" max="500" step="1" data-testid="discovery-top-n" x-model.number="disc.top_n" @input="disc.dirty = true">
+        </label>
+        <label class="field">
+          <span class="field-label">With</span>
+          <select x-model="disc.mode" @change="disc.dirty = true" data-testid="discovery-mode">
+            <option value="merge">my streamer list too</option>
+            <option value="only">only discovered streams</option>
+          </select>
+        </label>
+        <label class="field wide">
+          <span class="field-label">Categories <small class="muted">exact Twitch names, comma separated; empty = all</small></span>
+          <input type="text" placeholder="Some Category, Another Category" x-model="disc.categories" @input="disc.dirty = true">
+        </label>
+        <label class="field">
+          <span class="field-label">Languages <small class="muted">empty = any</small></span>
+          <input type="text" placeholder="en" x-model="disc.languages" @input="disc.dirty = true">
+        </label>
+        <label class="field">
+          <span class="field-label">Viewers, at least</span>
+          <input type="number" min="0" step="1" x-model.number="disc.min_viewers" @input="disc.dirty = true">
+        </label>
+        <label class="field">
+          <span class="field-label">Check every, seconds</span>
+          <input type="number" min="30" max="3600" step="1" x-model.number="disc.poll_s" @input="disc.dirty = true">
+        </label>
+        <label class="field">
+          <span class="field-label">Keep after leaving the top, min</span>
+          <input type="number" min="0" step="1" x-model.number="disc.keep_minutes" @input="disc.dirty = true">
+        </label>
+        <label class="field wide">
+          <span class="field-label">Never add <small class="muted">channel names, comma separated</small></span>
+          <input type="text" x-model="disc.exclude" @input="disc.dirty = true">
+          <span class="help">Discovered channels are recorded within Max streamers, like listed ones, with the default detection settings and layout. They aren't added to your streamer list.</span>
+        </label>
+        <div class="row-actions">
+          <button type="button" class="btn" :disabled="!disc.dirty" @click="loadDiscovery()">Discard changes</button>
+          <button type="submit" class="btn primary" :disabled="!disc.dirty">Save discovery</button>
+        </div>
+      </form>
     </div>
 
     <div class="card panel">

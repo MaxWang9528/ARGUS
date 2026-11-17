@@ -24,6 +24,7 @@ class Topic(StrEnum):
     SNAPSHOT = "snapshot"              # {"streamer": str, "ts": float}
     CONFIG_CHANGED = "config_changed"  # {"patch": dict}
     LOG = "log"                        # LogLine
+    STREAMERS_CHANGED = "streamers_changed"  # {"discovered": [names]} (stream discovery)
 
 
 class Subscription:

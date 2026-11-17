@@ -4,6 +4,7 @@
     ./lw demo                run everything on fake parts (no Twitch, no TikTok)
     ./lw replay <chat.jsonl> run a recorded chat log through the peak detector
     ./lw login-tiktok [--account NAME]  open a browser and log in to TikTok once
+    ./lw discover [--category NAME] [--top N]  print the top live Twitch streams once
 """
 
 from __future__ import annotations
@@ -58,6 +59,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--streamer", default=None, help="only this channel")
     p = sub.add_parser("login-tiktok", help="log in to TikTok in an account's saved browser profile")
     p.add_argument("--account", default=None, help="the [[tiktok.accounts]] name (default: the first)")
+    p = sub.add_parser("discover", help="print the top live Twitch streams once (tests the Twitch keys)")
+    p.add_argument("--category", action="append", default=None, metavar="NAME",
+                   help="exact Twitch category name (repeat for more; default: [discovery] categories)")
+    p.add_argument("--top", type=int, default=None, metavar="N", help="how many (default: discovery.top_n)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -78,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "login-tiktok":
         args.store = _load_store(args.config) if Path(args.config).exists() else ConfigStore()
         return _delegate("argus.upload.login:main", args)
+    if args.command == "discover":
+        args.store = _load_store(args.config) if Path(args.config).exists() else ConfigStore()
+        return _delegate("argus.discover.cli:main", args)
     return 1
 
 

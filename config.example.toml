@@ -14,7 +14,7 @@ retention_days = 7             # delete raw and rendered clip files older than t
 priority_categories = []       # e.g. ["Minecraft"]
 max_streamers = 12             # record at most this many live streamers at once (0 = no limit): priority_categories first, then most viewers; ~80 MB RAM and 0.4 MB/s each
 
-[twitch]                       # optional: Helix keys for faster live checks and titles
+[twitch]                       # optional: Helix keys for faster live checks and titles; needed for [discovery]
 client_id = ""
 client_secret = ""
 live_check_interval_s = 20       # seconds between live checks (a stream start can take 1-2 min to show)
@@ -24,13 +24,13 @@ bin_s = 1
 smooth_s = 5
 baseline_window_s = 300        # how far back "normal chat" is measured (shorter = follows chat faster)
 recent_baseline_s = 90         # if chat over this long is busier, that becomes normal (0 = off)
-multiplier = 3.0               # a peak needs chat at this many times normal
+multiplier = 2.5               # a peak needs chat at this many times normal
 z_threshold = 4.0
-min_msgs_per_sec = 2.0
-min_unique_chatters = 5
+min_msgs_per_sec = 0.6
+min_unique_chatters = 3
 end_ratio = 1.5                # the peak ends when chat falls below this many times normal
-cooldown_s = 90
-min_sustain_s = 10             # chat must stay raised this long; shorter bursts are spikes, not clipped
+cooldown_s = 45
+min_sustain_s = 6             # chat must stay raised this long; shorter bursts are spikes, not clipped
 preroll_s = 8                  # seconds kept before chat starts rising (chat reacts a few s after the moment)
 postroll_s = 3                 # seconds kept after chat falls back...
 max_after_peak_s = 12          # ...but never more than this after the busiest second
@@ -94,6 +94,35 @@ rank_half_life_h = 1.5           # a queued clip's rank halves every this many h
 # max_uploads_per_day = 3
 # min_minutes_between_uploads = 90
 
+[speech]                       # speech check: transcribe each auto clip, score the streamer's excitement
+enabled = true                 # needs the optional faster-whisper package (uv pip install faster-whisper); skipped without it
+model = "small.en"             # faster-whisper model; downloads to the Hugging Face cache on first use (base.en: ~3x faster)
+threads = 2                    # CPU threads per transcription
+max_concurrent = 1             # transcriptions at a time (1-2)
+download_root = ""             # "" = the Hugging Face cache
+gate_threshold = 0             # drop auto clips scoring below this (0 = off; one exclamation or swear scores ~1-1.5)
+rank_weight = 0.25             # rank *= 1 + rank_weight * (min(score, 3) - 0.5), within 0.5-2 (0 = no effect)
+
+[judge]                        # moment judge: Claude reads each auto clip's transcript and chat, scores it 0-10, drafts a caption
+enabled = false                # needs the optional anthropic package and ANTHROPIC_API_KEY (or `ant auth login`); skipped without them
+model = "claude-opus-5-5"      # Claude model
+effort = "low"                 # low | medium | high | xhigh | max (higher costs more)
+rank_weight = 1.0              # rank *= 1 + rank_weight * (score / 10 - 0.5), within 0.25-2 (0 = no effect)
+gate_score = 0                 # drop auto clips the judge scores below this (0 = off)
+use_caption = true             # caption = the judge's caption + the #tags of the usual caption
+max_concurrent = 2             # requests at a time
+
+[discovery]                    # stream discovery: also watch the top live Twitch streams by viewers
+enabled = false                # needs Twitch app keys: [twitch] client_id/client_secret or TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET
+categories = []                # exact Twitch category names, e.g. ["Some Category"]; empty = all categories
+languages = ["en"]             # stream languages; empty = any
+top_n = 12                     # how many top streams to watch
+min_viewers = 0                # skip streams with fewer viewers
+poll_s = 90                    # seconds between checks (Helix allows ~800 requests/min; one check is 1-3)
+exclude = []                   # channel names never to add
+keep_minutes = 10              # keep a channel this long after it leaves the top or goes offline
+mode = "merge"                 # "merge": [[streamers]] + discovered; "only": just the discovered ones
+
 # Twitch channels to watch: English-speaking streamers, the ones with the youngest and
 # fastest-growing audiences first, then the biggest established names. Every one is
 # checked for being live and has its chat read; only the top general.max_streamers live
@@ -108,7 +137,7 @@ rank_half_life_h = 1.5           # a queued clip's rank halves every this many h
 # stack_top = { x = 0.0, y = 0.6, w = 0.25, h = 0.4 }    # fractions of the frame
 # stack_bottom = { x = 0.15, y = 0.0, w = 0.7, h = 1.0 }
 # stack_split = 0.4                                      # share of the height the top region gets
-# multiplier = 2.5                                       # a detection override for this streamer
+# multiplier = 4                                         # a detection override for this streamer
 
 [[streamers]]
 name = "kaicenat"

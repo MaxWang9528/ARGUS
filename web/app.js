@@ -469,6 +469,8 @@ document.addEventListener('alpine:init', () => {
     newStreamer: '',
     addError: '',
     limits: { dirty: false },
+    disc: { dirty: false },  // the Discovery settings form
+    discovery: null,         // GET /api/state .discovery
     maxStreamers: 0,
     groupsOpen: { unwatched: false, offline: false },
     confirmDelete: null,
@@ -615,6 +617,7 @@ document.addEventListener('alpine:init', () => {
 
     applyState(state) {
       this.components = state.components;
+      this.discovery = state.discovery || null;
       this.isDemo = Object.values(state.components).every(k => k === 'fake');
       const now = Date.now() / 1000;
       for (const s of state.streamers) if (s.has_snapshot && !this.snapTs[s.name]) this.snapTs[s.name] = now;
@@ -627,6 +630,7 @@ document.addEventListener('alpine:init', () => {
       this.config = config;
       this.maxStreamers = config.general.max_streamers ?? 0;
       if (!this.limits.dirty) this.loadLimits();
+      if (!this.disc.dirty) this.loadDiscovery();
       if (!this.lay.dirty) this.loadLayoutForm();
     },
 
@@ -654,10 +658,11 @@ document.addEventListener('alpine:init', () => {
         case 'snapshot': this.onSnapshot(data.streamer, data.ts); break;
         case 'config_changed':
           api('GET', '/config').then(c => this.setConfig(c)).catch(() => {});
-          if (data.patch && ('streamers' in data.patch || 'general' in data.patch || 'tiktok' in data.patch)) this.refreshState();
+          if (data.patch && ('streamers' in data.patch || 'general' in data.patch || 'tiktok' in data.patch || 'discovery' in data.patch || 'twitch' in data.patch)) this.refreshState();
           if (data.patch && 'tiktok' in data.patch) this.soonUploadState();
           break;
         case 'log': this.addLog(data); break;
+        case 'streamers_changed': this.refreshState(); break;  // stream discovery changed the list
       }
     },
 
@@ -783,7 +788,9 @@ document.addEventListener('alpine:init', () => {
       return n == null ? '' : `${this.fmtViewers(n)} viewer${n === 1 ? '' : 's'}`;
     },
     offlineNote(s) {
+      if (!s.enabled && s.configured && this.config?.discovery?.mode === 'only' && this.discovery?.active) return 'not in the discovered top (discovery mode "only")';
       if (!s.enabled) return 'turned off in Settings';
+      if (s.discovered && !s.configured) return 'discovered; kept a few minutes after leaving the top';
       if (s.status.recorder_state === 'error') return s.status.last_error || 'recorder error';
       return 'offline';
     },
@@ -1020,6 +1027,7 @@ document.addEventListener('alpine:init', () => {
       if (this.isManual(c)) return 'Clipped by hand: goes first in the upload queue';
       return 'Peak chat rate divided by normal chat. When upload slots are short, clips go by rank: '
         + 'this, how many people chatted and how much of it was laughter or shock (not votes or goodbyes), '
+        + 'how excited the streamer sounded (speech check), the moment judge\'s score when it is on, '
         + 'counting fresher clips higher.';
     },
     showAccount(c) { return !!c.account && ['uploading', 'uploaded', 'dry_run_ok', 'failed'].includes(c.status); },
@@ -1531,6 +1539,45 @@ document.addEventListener('alpine:init', () => {
         max_queue_age_h: t.max_queue_age_h ?? 6,
         dirty: false,
       };
+    },
+    // stream discovery
+    discoveryInfo(name) { return this.discovery?.streams?.find(x => x.name === name) || null; },
+    discoveredTitle(s) {
+      const d = this.discoveryInfo(s.name);
+      if (!d) return 'Found by stream discovery';
+      return d.in_top ? `Found by stream discovery: #${d.rank} by viewers` : 'Found by stream discovery: left the top, kept for a few minutes';
+    },
+    discoverySummary() {
+      const d = this.discovery;
+      if (!d) return '';
+      if (!d.has_credentials) return d.setup;
+      if (!d.enabled) return 'Off.';
+      if (d.error) return d.error;
+      if (!d.active) return 'Starting…';
+      const n = d.streams.length;
+      return `Watching ${n} discovered channel${n === 1 ? '' : 's'}${d.mode === 'only' ? ' (and nothing else)' : ''}.`;
+    },
+    loadDiscovery() {
+      const d = this.config?.discovery;
+      if (!d) return;
+      this.disc = {
+        enabled: d.enabled, mode: d.mode, top_n: d.top_n, min_viewers: d.min_viewers,
+        poll_s: d.poll_s, keep_minutes: d.keep_minutes,
+        categories: (d.categories || []).join(', '), languages: (d.languages || []).join(', '),
+        exclude: (d.exclude || []).join(', '), dirty: false,
+      };
+    },
+    async saveDiscovery() {
+      const list = v => (v || '').split(',').map(x => x.trim()).filter(Boolean);
+      const f = this.disc;
+      const discovery = {
+        enabled: !!f.enabled, mode: f.mode === 'only' ? 'only' : 'merge',
+        top_n: Math.max(1, Math.round(+f.top_n || 12)), min_viewers: Math.max(0, Math.round(+f.min_viewers || 0)),
+        poll_s: Math.max(30, +f.poll_s || 90), keep_minutes: Math.max(0, +f.keep_minutes || 0),
+        categories: list(f.categories), languages: list(f.languages).map(x => x.toLowerCase()),
+        exclude: list(f.exclude).map(x => x.replace(/^@/, '').toLowerCase()),
+      };
+      if (await this.patchConfig({ discovery }, 'Discovery settings saved.')) this.disc.dirty = false;
     },
     async saveMaxStreamers() {
       const n = Math.max(0, Math.round(+this.maxStreamers || 0));

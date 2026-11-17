@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Run argus with the shared environment: ./lw run | demo | replay | login-tiktok
+# Run argus with the shared environment: ./lw run | demo | replay | login-tiktok | discover
 VENV="${ARGUS_VENV:-$HOME/.venvs/livewatcher}"
 cd "$(dirname "$0")" && exec "$VENV/bin/python" -m argus "$@"

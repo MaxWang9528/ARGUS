@@ -235,7 +235,7 @@ class TwitchChatSource:
         return {s.name.lower() for s in self.store.get().enabled_streamers()}
 
     async def run(self) -> None:
-        sub = self.bus.subscribe(Topic.CONFIG_CHANGED)
+        sub = self.bus.subscribe(Topic.CONFIG_CHANGED, Topic.STREAMERS_CHANGED)
         try:
             async with asyncio.TaskGroup() as tg:
                 if self.record:

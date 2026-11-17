@@ -252,7 +252,7 @@ class Recorder:
     async def run(self) -> None:
         self._running = True
         self._wipe_all()
-        sub = self.bus.subscribe(Topic.CONFIG_CHANGED)
+        sub = self.bus.subscribe(Topic.CONFIG_CHANGED, Topic.STREAMERS_CHANGED)
         try:
             while True:
                 changed = False

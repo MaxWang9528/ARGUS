@@ -312,7 +312,7 @@ def test_config_round_trip_saves_the_file(file_lw):
         streamers = r.json()["streamers"]
         del streamers[0]["cooldown_s"]
         client.patch("/api/config", json={"streamers": streamers})
-        assert ConfigStore(path).get().detection_for("somestreamer").cooldown_s == 90
+        assert ConfigStore(path).get().detection_for("somestreamer").cooldown_s == 45
 
 
 @pytest.mark.parametrize("patch", [
